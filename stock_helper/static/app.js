@@ -187,8 +187,7 @@ function escapeHtml(value) {
 }
 
 if (scanForm) {
-  scanForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  const doScan = async () => {
     if (eventSource) {
       eventSource.close();
       eventSource = null;
@@ -220,7 +219,21 @@ if (scanForm) {
       if (runLabel) runLabel.textContent = "启动扫描";
       if (taskStatus) taskStatus.textContent = "启动失败";
     }
+  };
+
+  scanForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    doScan();
   });
+
+  // 外部按钮
+  const extBtn = document.querySelector("button[form='scan-form']");
+  if (extBtn) {
+    extBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      doScan();
+    });
+  }
 }
 
 refreshStatus();
