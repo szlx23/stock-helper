@@ -66,9 +66,6 @@
         </div>
       </details>
 
-      <button class="button primary" type="submit">
-        <span data-run-label>启动扫描</span>
-      </button>
     </form>
   </aside>
 
@@ -101,6 +98,13 @@
 
     </section>
 
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
+      <input type="password" name="run_password" id="run-pwd" placeholder="运行密码" form="scan-form" autocomplete="off" style="width:100px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:0.85rem;background:var(--surface);color:var(--text)">
+      <button class="button primary" type="submit" form="scan-form" style="flex:1">
+        <span data-run-label>启动扫描</span>
+      </button>
+    </div>
+
     <section class="panel progress-panel">
       <div class="panel-head">
         <div>
@@ -125,6 +129,8 @@
         {% endif %}
       </p>
     </section>
+
+
 
     {% if summary.scan and summary.scan.status == "failed" %}
     <div class="alert">最近一次筛选失败：{{ summary.scan.error_message }}</div>
@@ -185,11 +191,7 @@
         {% endfor %}
       </div>
     </section>
-    <section class="panel" style="margin-top:1rem;text-align:right;opacity:0.6">
-    <input type="password" id="clear-pwd" placeholder="输入密码清空数据库" style="width:180px;padding:4px 8px;margin-right:8px">
-    <button class="button" id="clear-db-btn" style="font-size:0.8rem">清空数据库</button>
-    <span id="clear-msg" style="margin-left:8px;font-size:0.8rem"></span>
-  </section>
+  
 </main>
 </section>
 {% endblock %}

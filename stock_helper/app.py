@@ -18,7 +18,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="A股短线策略辅助系统", lifespan=lifespan)
+app = FastAPI(title="szl的策略助手", lifespan=lifespan)
 templates = Jinja2Templates(directory="stock_helper/templates")
 app.mount("/static", StaticFiles(directory="stock_helper/static"), name="static")
 
@@ -56,6 +56,9 @@ def candidates(request: Request):
 @app.post("/run-scan")
 async def run_scan(request: Request):
     form = await request.form()
+    pwd = form.get("run_password", "")
+    if pwd != "001023":
+        return JSONResponse({"ok": False, "error": "密码错误"}, status_code=403)
     config = _config_from_form(form)
     task_id = scan_manager.start(config)
     return JSONResponse({"ok": True, "task_id": task_id})

@@ -199,13 +199,20 @@ if (scanForm) {
     if (taskStatus) taskStatus.textContent = "启动中";
 
     try {
+      const formData = new FormData(scanForm);
+      const runPwd = document.getElementById("run-pwd");
+      if (runPwd) formData.set("run_password", runPwd.value);
       const response = await fetch(scanForm.action, {
         method: "POST",
-        body: new FormData(scanForm),
+        body: formData,
         headers: { Accept: "application/json" },
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${response.status}`);
+      }
       const payload = await response.json();
+      if (!payload.ok) throw new Error(payload.error);
       appendLog(`任务 #${payload.task_id} 已接管当前扫描通道。`);
       connectEvents();
     } catch (error) {
