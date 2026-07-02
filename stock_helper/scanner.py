@@ -106,6 +106,8 @@ class StockScanner:
                 if scored["passed"]:
                     passed.append(scored["candidate"])
                     _log(log, f"命中 {scored['candidate']['code']} {scored['candidate']['name']}，评分 {scored['candidate']['score']}")
+                    if progress:
+                        progress(hits_detail=scored["candidate"])
                 _progress(
                     progress,
                     phase="analysis",
@@ -121,20 +123,8 @@ class StockScanner:
                     _log(log, f"分析进度 {completed}/{total} ({completed*100//total}%)，当前命中 {len(passed)}")
 
         candidates = passed[:]
-        if len(candidates) < 10:
-            # 按分数排名补充未命中的股票
-            all_scored.sort(key=lambda x: x["score"], reverse=True)
-            for item in all_scored:
-                if len(candidates) >= 10:
-                    break
-                if not item["passed"]:
-                    c = item["candidate"]
-                    c["reasons"] = ["未达标，仅供参考"]
-                    candidates.append(c)
-            _log(log, f"命中不足，已补充至 {len(candidates)} 只（含未达标项）")
-
         candidates.sort(key=lambda item: item["score"], reverse=True)
-        _log(log, f"扫描完成：命中 {len(passed)} 只" + (f"（共展示 {len(candidates)} 只）" if len(candidates) > len(passed) else ""))
+        _log(log, f"扫描完成：命中 {len(candidates)} 只")
         return candidates
 
     def _analyze_one_full(self, stock: StockInfo, history: list[dict], config: StrategyConfig, stop_event=None) -> dict:

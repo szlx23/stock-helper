@@ -217,3 +217,23 @@ if (scanForm) {
 }
 
 refreshStatus();
+
+const clearDbBtn = document.getElementById("clear-db-btn");
+const clearPwd = document.getElementById("clear-pwd");
+const clearMsg = document.getElementById("clear-msg");
+if (clearDbBtn) {
+  clearDbBtn.addEventListener("click", async () => {
+    if (!clearPwd || !clearMsg) return;
+    const pwd = clearPwd.value;
+    if (!pwd) { clearMsg.textContent = "请输入密码"; return; }
+    clearMsg.textContent = "处理中...";
+    try {
+      const r = await fetch("/clear-db", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({password: pwd}) });
+      const j = await r.json();
+      clearMsg.textContent = j.ok ? "已清空 \u2713" : (j.error || "失败");
+      if (j.ok) clearPwd.value = "";
+    } catch(e) {
+      clearMsg.textContent = "请求失败";
+    }
+  });
+}

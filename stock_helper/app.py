@@ -65,11 +65,14 @@ async def run_scan(request: Request):
 def scan_events():
     def event_stream():
         offset = 0
+        hit_offset = 0
         idle_ticks = 0
         while True:
-            task_id, logs, done, offset, progress = scan_manager.snapshot(offset)
+            task_id, logs, done, offset, progress, new_hits, hit_offset = scan_manager.snapshot(offset, hit_offset)
             for line in logs:
                 yield f"data: {json.dumps({'type': 'log', 'task_id': task_id, 'line': line, 'done': False}, ensure_ascii=False)}\n\n"
+            if new_hits:
+                yield f"data: {json.dumps({'type': 'hits', 'task_id': task_id, 'candidates': new_hits}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'progress', 'task_id': task_id, 'progress': progress, 'done': False}, ensure_ascii=False)}\n\n"
             if done:
                 yield f"data: {json.dumps({'type': 'log', 'task_id': task_id, 'line': '任务结束', 'done': True}, ensure_ascii=False)}\n\n"
@@ -81,6 +84,22 @@ def scan_events():
             time.sleep(1)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/clear-db")
+async def clear_db(request: Request):
+    body = await request.json()
+    if body.get("password") != "001023":
+        return JSONResponse({"ok": False, "error": "密码错误"}, status_code=403)
+    import sqlite3, os
+    db_path = db.get_db_path()
+    conn = sqlite3.connect(str(db_path))
+    for t in ("stock_daily_bars", "candidates", "scan_tasks", "stock_info_cache"):
+        conn.execute(f"DELETE FROM {t}")
+    conn.execute("DELETE FROM sqlite_sequence")
+    conn.commit()
+    conn.close()
+    return JSONResponse({"ok": True})
 
 
 @app.get("/scan-status")

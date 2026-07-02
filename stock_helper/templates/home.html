@@ -175,7 +175,7 @@
             <span>涨跌 <b>{{ "%.2f%%"|format(item.pct_chg * 100) }}</b></span>
             <span>MA10 <b>{{ "%.2f"|format(item.ma10) }}</b></span>
             <span>距MA10 <b>{{ "%.2f%%"|format(item.distance_ma10_pct * 100) }}</b></span>
-            <span>量比 <b>{{ "%.2f"|format(item.volume_ratio_5) }}</b></span>
+            <span>量比 <b>{{ "%.2f"|format(item.volume_ratio_5 or 0) }}</b></span>
           </div>
           <div class="chips">
             {% for reason in item.reasons %}<span class="chip good">{{ reason }}</span>{% endfor %}
@@ -185,6 +185,11 @@
         {% endfor %}
       </div>
     </section>
-  </main>
+    <section class="panel" style="margin-top:1rem;text-align:right;opacity:0.6">
+    <input type="password" id="clear-pwd" placeholder="输入密码清空数据库" style="width:180px;padding:4px 8px;margin-right:8px">
+    <button class="button" id="clear-db-btn" style="font-size:0.8rem">清空数据库</button>
+    <span id="clear-msg" style="margin-left:8px;font-size:0.8rem"></span>
+  </section>
+</main>
 </section>
 {% endblock %}
