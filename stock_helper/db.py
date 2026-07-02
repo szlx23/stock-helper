@@ -60,6 +60,28 @@ def init_db(db_path: Path | None = None) -> None:
                 risks TEXT NOT NULL,
                 FOREIGN KEY (scan_id) REFERENCES scan_tasks(id)
             );
+
+            CREATE TABLE IF NOT EXISTS stock_daily_bars (
+                code TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                open REAL NOT NULL,
+                high REAL NOT NULL,
+                low REAL NOT NULL,
+                close REAL NOT NULL,
+                volume REAL NOT NULL,
+                turn REAL NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                PRIMARY KEY (code, trade_date)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_stock_daily_bars_code_date
+            ON stock_daily_bars (code, trade_date);
+
+            CREATE TABLE IF NOT EXISTS stock_info_cache (
+                code TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+            );
             """
         )
 
@@ -139,6 +161,12 @@ def scan_candidates(scan_id: int) -> list[dict]:
     return [_decode_candidate(row) for row in rows]
 
 
+def latest_data_date() -> str | None:
+    with connect() as conn:
+        row = conn.execute("SELECT MAX(trade_date) AS d FROM stock_daily_bars").fetchone()
+    return row["d"] if row else None
+
+
 def latest_summary() -> dict:
     scan = latest_scan()
     candidates = latest_candidates() if scan else []
@@ -148,7 +176,100 @@ def latest_summary() -> dict:
         "params": params,
         "count": len(candidates),
         "top": candidates[0] if candidates else None,
+        "data_date": latest_data_date(),
     }
+
+
+def get_cached_bars(code: str, limit: int) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT trade_date AS date, open, high, low, close, volume, turn
+            FROM stock_daily_bars
+            WHERE code = ?
+            ORDER BY trade_date DESC
+            LIMIT ?
+            """,
+            (code, limit),
+        ).fetchall()
+    return [dict(row) for row in reversed(rows)]
+
+
+def latest_cached_bar_date(code: str) -> str | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT MAX(trade_date) AS latest_date FROM stock_daily_bars WHERE code = ?",
+            (code,),
+        ).fetchone()
+    return row["latest_date"] if row and row["latest_date"] else None
+
+
+def upsert_bars(code: str, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    with connect() as conn:
+        conn.executemany(
+            """
+            INSERT INTO stock_daily_bars (code, trade_date, open, high, low, close, volume, turn, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            ON CONFLICT(code, trade_date) DO UPDATE SET
+                open = excluded.open,
+                high = excluded.high,
+                low = excluded.low,
+                close = excluded.close,
+                volume = excluded.volume,
+                turn = excluded.turn,
+                updated_at = datetime('now', 'localtime')
+            """,
+            [
+                (
+                    code,
+                    row["date"],
+                    _to_float(row.get("open")),
+                    _to_float(row.get("high")),
+                    _to_float(row.get("low")),
+                    _to_float(row.get("close")),
+                    _to_float(row.get("volume") or row.get("vol")),
+                    _to_float(row.get("turn")),
+                )
+                for row in rows
+                if row.get("date")
+            ],
+        )
+    return len(rows)
+
+
+def upsert_stock_list(stocks) -> int:
+    if not stocks:
+        return 0
+    with connect() as conn:
+        conn.executemany(
+            """
+            INSERT INTO stock_info_cache (code, name, updated_at)
+            VALUES (?, ?, datetime('now', 'localtime'))
+            ON CONFLICT(code) DO UPDATE SET
+                name = excluded.name,
+                updated_at = datetime('now', 'localtime')
+            """,
+            [(stock.code, stock.name) for stock in stocks],
+        )
+    return len(stocks)
+
+
+def cached_stock_list() -> list:
+    from stock_helper.data import StockInfo
+
+    with connect() as conn:
+        rows = conn.execute("SELECT code, name FROM stock_info_cache ORDER BY code").fetchall()
+    if rows:
+        return [StockInfo(code=row["code"], name=row["name"]) for row in rows]
+
+    # fallback: 从 stock_daily_bars 中提取已有代码
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT code FROM stock_daily_bars ORDER BY code"
+        ).fetchall()
+    return [StockInfo(code=row["code"], name=row["code"]) for row in rows]
 
 
 def _decode_candidate(row: sqlite3.Row) -> dict:
@@ -156,3 +277,12 @@ def _decode_candidate(row: sqlite3.Row) -> dict:
     item["reasons"] = json.loads(item["reasons"])
     item["risks"] = json.loads(item["risks"])
     return item
+
+
+def _to_float(value: object) -> float:
+    if value in (None, ""):
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0

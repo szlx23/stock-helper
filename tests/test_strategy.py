@@ -59,3 +59,17 @@ def test_bj_stock_can_be_excluded():
 
     assert not result.passed
     assert any("北交所" in risk for risk in result.risks)
+
+
+def test_star_market_stock_can_be_excluded():
+    result = evaluate_stock("sh.688001", "示例股份", make_rows(), StrategyConfig(exclude_star=True))
+
+    assert not result.passed
+    assert any("科创板" in risk for risk in result.risks)
+
+
+def test_chinext_stock_can_be_excluded():
+    result = evaluate_stock("sz.300001", "示例股份", make_rows(), StrategyConfig(exclude_chinext=True))
+
+    assert not result.passed
+    assert any("创业板" in risk for risk in result.risks)

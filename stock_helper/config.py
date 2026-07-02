@@ -13,8 +13,14 @@ class StrategyConfig:
     limit_up_pct: float = 0.095
     max_recent_rise: float = 0.65
     lookback_days: int = 160
+    cache_refresh_days: int = 7
+    max_workers: int = 8
+    max_scan_count: int = 5000
     exclude_st: bool = True
     exclude_bj: bool = True
+    exclude_star: bool = True
+    exclude_chinext: bool = True
+    exclude_etf: bool = True
 
     score_yin_line: int = 10
     score_shrink_volume: int = 15
@@ -66,6 +72,9 @@ FILTER_FIELDS = [
     ("shrink_vol_ratio", "缩量/不放量阈值", ""),
     ("limit_up_pct", "接近涨停阈值", ""),
     ("lookback_days", "历史回看天数", "天"),
+    ("cache_refresh_days", "缓存补最近天数", "天"),
+    ("max_workers", "并行线程数", ""),
+    ("max_scan_count", "分析数量上限", "只"),
 ]
 
 SCORE_FIELDS = [
@@ -80,4 +89,12 @@ SCORE_FIELDS = [
     ("score_big_yang", "前期放量大阳线分数"),
     ("score_limit_up", "前期接近涨停分数"),
     ("score_recent_rise_too_high", "近40日涨幅过大扣分"),
+]
+
+EXCLUDE_FIELDS = [
+    ("exclude_st", "排除 ST / 退市", "名称含 ST 或退市风险"),
+    ("exclude_bj", "排除北交所", "bj / 8 / 4 开头"),
+    ("exclude_star", "排除科创板", "688 / 689 开头"),
+    ("exclude_chinext", "排除创业板", "300 / 301 开头"),
+    ("exclude_etf", "排除ETF/LOF/指数", "510/159/000 等非个股"),
 ]

@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}候选股 - A股策略助手{% endblock %}
 {% block content %}
-<section class="section">
-  <div class="section-head">
+<section class="list-hero reveal">
+  <div class="deck-head">
     <div>
+      <p class="eyebrow">CANDIDATE RADAR</p>
       <h1>候选股</h1>
       <p class="muted">
         {{ summary.scan.scanned_at if summary.scan else "尚未运行筛选" }}
@@ -15,21 +16,21 @@
 </section>
 
 {% if not candidates %}
-<section class="empty">暂无候选股。可返回首页调整参数后运行筛选。</section>
+<section class="empty reveal">暂无候选股。可返回首页调整参数后运行筛选。</section>
 {% endif %}
 
 <section class="candidate-list">
   {% for item in candidates %}
-  <article class="candidate-card">
+  <article class="candidate-card reveal">
     <div class="candidate-title">
       <div>
+        <span class="market-code">{{ item.trade_date }}</span>
         <strong>{{ item.code }}</strong>
         <span>{{ item.name }}</span>
       </div>
-      <b>{{ item.score }} 分</b>
+      <b><em>{{ item.score }}</em> 分</b>
     </div>
     <div class="metrics">
-      <span>日期 <b>{{ item.trade_date }}</b></span>
       <span>收盘 <b>{{ "%.2f"|format(item.close) }}</b></span>
       <span>涨跌 <b>{{ "%.2f%%"|format(item.pct_chg * 100) }}</b></span>
       <span>MA5 <b>{{ "%.2f"|format(item.ma5) }}</b></span>

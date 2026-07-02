@@ -5,16 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}A股策略助手{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+  <script defer src="{{ url_for('static', path='app.js') }}"></script>
 </head>
 <body>
+  <a class="skip-link" href="#main">跳到内容</a>
+  <div class="screen-grid" aria-hidden="true"></div>
+  <div class="scan-beam" aria-hidden="true"></div>
   <header class="topbar">
-    <a href="/" class="brand">A股策略助手</a>
-    <nav>
+    <a href="/" class="brand">
+      <span class="brand-mark">SH</span>
+      <span>策略助手</span>
+    </a>
+    <nav aria-label="主导航">
       <a href="/">首页</a>
-      <a href="/candidates">候选</a>
     </nav>
   </header>
-  <main class="container">
+  <main id="main" class="container">
     {% block content %}{% endblock %}
   </main>
 </body>

@@ -1,31 +1,38 @@
-from dataclasses import dataclass
 from datetime import date, timedelta
+from threading import RLock
+
+from stock_helper.data import StockInfo
 
 
-@dataclass(slots=True)
-class StockInfo:
-    code: str
-    name: str
+_BAOSTOCK_LOCK = RLock()
 
 
 class BaoStockProvider:
+    SOURCE_NAME = "BaoStock"
+
     def __init__(self) -> None:
         import baostock as bs
 
         self.bs = bs
 
     def __enter__(self) -> "BaoStockProvider":
+        _BAOSTOCK_LOCK.acquire()
         result = self.bs.login()
         if result.error_code != "0":
+            _BAOSTOCK_LOCK.release()
             raise RuntimeError(f"BaoStock登录失败: {result.error_msg}")
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        self.bs.logout()
+        try:
+            self.bs.logout()
+        finally:
+            _BAOSTOCK_LOCK.release()
 
     def list_stocks(self) -> list[StockInfo]:
-        today = date.today().isoformat()
-        result = self.bs.query_all_stock(day=today)
+        result = self.bs.query_all_stock()
+        if result.error_code != "0":
+            raise RuntimeError(f"BaoStock query_all_stock 失败: {result.error_msg}")
         rows = _result_rows(result)
         stocks = []
         for row in rows:
@@ -38,16 +45,18 @@ class BaoStockProvider:
     def get_history(self, code: str, lookback_days: int) -> list[dict]:
         end = date.today()
         start = end - timedelta(days=max(lookback_days * 2, 260))
+        return self.get_history_range(code, start.isoformat(), end.isoformat())[-lookback_days:]
+
+    def get_history_range(self, code: str, start_date: str, end_date: str) -> list[dict]:
         result = self.bs.query_history_k_data_plus(
             code,
             "date,open,high,low,close,volume,turn",
-            start_date=start.isoformat(),
-            end_date=end.isoformat(),
+            start_date=start_date,
+            end_date=end_date,
             frequency="d",
             adjustflag="2",
         )
-        rows = _result_rows(result)
-        return rows[-lookback_days:]
+        return _result_rows(result)
 
 
 def _result_rows(result) -> list[dict]:

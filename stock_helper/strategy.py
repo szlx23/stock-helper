@@ -29,6 +29,10 @@ def hard_filter(code: str, name: str, rows: list[dict], config: StrategyConfig) 
         rejects.append("ST或退市风险股")
     if config.exclude_bj and _is_bj_stock(code):
         rejects.append("北交所股票")
+    if config.exclude_star and _is_star_stock(code):
+        rejects.append("科创板股票")
+    if config.exclude_chinext and _is_chinext_stock(code):
+        rejects.append("创业板股票")
     if latest["close"] > config.max_price:
         rejects.append(f"收盘价超过最高股价{config.max_price:g}")
     if latest["close"] >= latest["open"]:
@@ -108,8 +112,22 @@ def _missing_ma(row: dict) -> bool:
 
 
 def _is_bj_stock(code: str) -> bool:
-    normalized = code.lower()
-    return normalized.startswith("bj.") or normalized.startswith("8") or normalized.startswith("4")
+    normalized = _code_number(code)
+    return code.lower().startswith("bj.") or normalized.startswith("8") or normalized.startswith("4")
+
+
+def _is_star_stock(code: str) -> bool:
+    normalized = _code_number(code)
+    return normalized.startswith("688") or normalized.startswith("689")
+
+
+def _is_chinext_stock(code: str) -> bool:
+    normalized = _code_number(code)
+    return normalized.startswith("300") or normalized.startswith("301")
+
+
+def _code_number(code: str) -> str:
+    return code.split(".")[-1].lower()
 
 
 def _ma_bull(row: dict) -> bool:

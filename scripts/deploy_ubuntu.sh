@@ -39,6 +39,26 @@ sudo -u "${APP_USER}" "${PYTHON_BIN}" -m venv "${APP_DIR}/.venv"
 sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install --upgrade pip
 sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install -e "${APP_DIR}"
 
+echo ""
+echo "数据源检查："
+sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -c "
+from stock_helper.data.multi_provider import make_multi_provider
+logs = []
+def log(msg):
+    logs.append(msg)
+try:
+    p = make_multi_provider(log=log)
+    for l in logs:
+        print(f'  {l}')
+    p.__enter__()
+    p.__exit__(None, None, None)
+except Exception as e:
+    for l in logs:
+        print(f'  {l}')
+    print(f'  ✗ 所有数据源均不可用: {e}')
+    exit(1)
+"
+
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<SERVICE
 [Unit]
 Description=A-share stock helper web app

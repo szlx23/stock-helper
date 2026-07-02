@@ -1,13 +1,15 @@
 from contextlib import asynccontextmanager
+import json
+import time
 
-from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from stock_helper import db
-from stock_helper.config import FILTER_FIELDS, SCORE_FIELDS, StrategyConfig
-from stock_helper.scanner import run_baostock_scan
+from stock_helper.config import EXCLUDE_FIELDS, FILTER_FIELDS, SCORE_FIELDS, StrategyConfig
+from stock_helper.scan_tasks import scan_manager
 
 
 @asynccontextmanager
@@ -24,15 +26,19 @@ app.mount("/static", StaticFiles(directory="stock_helper/static"), name="static"
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     config = StrategyConfig()
+    task_status = scan_manager.status()
     return templates.TemplateResponse(
         request,
         "home.html",
         {
             "request": request,
             "summary": db.latest_summary(),
+            "candidates": db.latest_candidates(),
+            "task_status": task_status,
             "config": config,
             "filter_fields": FILTER_FIELDS,
             "score_fields": SCORE_FIELDS,
+            "exclude_fields": EXCLUDE_FIELDS,
         },
     )
 
@@ -48,65 +54,65 @@ def candidates(request: Request):
 
 
 @app.post("/run-scan")
-def run_scan(
-    max_price: float = Form(40.0),
-    near_ma10_pct: float = Form(0.03),
-    max_ma10_ma20_gap: float = Form(0.12),
-    min_big_yang_pct: float = Form(0.045),
-    big_vol_multiple: float = Form(1.6),
-    shrink_vol_ratio: float = Form(1.0),
-    burst_vol_ratio: float = Form(1.25),
-    limit_up_pct: float = Form(0.095),
-    max_recent_rise: float = Form(0.65),
-    lookback_days: int = Form(160),
-    exclude_st: bool = Form(True),
-    exclude_bj: bool = Form(True),
-    score_yin_line: int = Form(10),
-    score_shrink_volume: int = Form(15),
-    score_near_ma10: int = Form(20),
-    score_ma_bull: int = Form(15),
-    score_ma_short_ok: int = Form(10),
-    score_ma10_up: int = Form(10),
-    score_ma10_ma20_gap_ok: int = Form(10),
-    score_above_ma20: int = Form(10),
-    score_big_yang: int = Form(15),
-    score_limit_up: int = Form(5),
-    score_recent_rise_too_high: int = Form(-15),
-):
-    config = StrategyConfig(
-        max_price=max_price,
-        near_ma10_pct=near_ma10_pct,
-        max_ma10_ma20_gap=max_ma10_ma20_gap,
-        min_big_yang_pct=min_big_yang_pct,
-        big_vol_multiple=big_vol_multiple,
-        shrink_vol_ratio=shrink_vol_ratio,
-        burst_vol_ratio=burst_vol_ratio,
-        limit_up_pct=limit_up_pct,
-        max_recent_rise=max_recent_rise,
-        lookback_days=lookback_days,
-        exclude_st=exclude_st,
-        exclude_bj=exclude_bj,
-        score_yin_line=score_yin_line,
-        score_shrink_volume=score_shrink_volume,
-        score_near_ma10=score_near_ma10,
-        score_ma_bull=score_ma_bull,
-        score_ma_short_ok=score_ma_short_ok,
-        score_ma10_up=score_ma10_up,
-        score_ma10_ma20_gap_ok=score_ma10_ma20_gap_ok,
-        score_above_ma20=score_above_ma20,
-        score_big_yang=score_big_yang,
-        score_limit_up=score_limit_up,
-        score_recent_rise_too_high=score_recent_rise_too_high,
+async def run_scan(request: Request):
+    form = await request.form()
+    config = _config_from_form(form)
+    task_id = scan_manager.start(config)
+    return JSONResponse({"ok": True, "task_id": task_id})
+
+
+@app.get("/scan-events")
+def scan_events():
+    def event_stream():
+        offset = 0
+        idle_ticks = 0
+        while True:
+            task_id, logs, done, offset, progress = scan_manager.snapshot(offset)
+            for line in logs:
+                yield f"data: {json.dumps({'type': 'log', 'task_id': task_id, 'line': line, 'done': False}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'task_id': task_id, 'progress': progress, 'done': False}, ensure_ascii=False)}\n\n"
+            if done:
+                yield f"data: {json.dumps({'type': 'log', 'task_id': task_id, 'line': '任务结束', 'done': True}, ensure_ascii=False)}\n\n"
+                break
+            idle_ticks += 1
+            if idle_ticks > 1800:
+                yield f"data: {json.dumps({'type': 'log', 'task_id': task_id, 'line': '连接超时', 'done': True}, ensure_ascii=False)}\n\n"
+                break
+            time.sleep(1)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.get("/scan-status")
+def scan_status():
+    status = scan_manager.status()
+    return JSONResponse(
+        {
+            "task_id": status["task_id"],
+            "logs": status["logs"],
+            "progress": status["progress"],
+            "done": status["done"],
+            "summary": _summary_payload(db.latest_summary()),
+            "candidates": db.latest_candidates(),
+        }
     )
-    scan_id = db.create_scan(config)
-    try:
-        candidates = run_baostock_scan(config)
-    except Exception as exc:
-        db.finish_scan(scan_id, 0, "failed", str(exc))
-        return RedirectResponse("/", status_code=303)
-    db.replace_candidates(scan_id, candidates)
-    db.finish_scan(scan_id, len(candidates))
-    return RedirectResponse("/candidates", status_code=303)
+
+
+def _config_from_form(form) -> StrategyConfig:
+    values = dict(form)
+    for name, _, _ in EXCLUDE_FIELDS:
+        values[name] = name in form
+    return StrategyConfig.from_mapping(values)
+
+
+def _summary_payload(summary: dict) -> dict:
+    scan = summary["scan"]
+    return {
+        "count": summary["count"],
+        "top": summary["top"],
+        "params": summary["params"],
+        "scan": dict(scan) if scan else None,
+    }
 
 
 def main() -> None:

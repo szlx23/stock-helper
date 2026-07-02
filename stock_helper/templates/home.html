@@ -1,69 +1,190 @@
 {% extends "base.html" %}
 {% block title %}首页 - A股策略助手{% endblock %}
 {% block content %}
-<section class="summary-grid">
-  <article class="panel">
-    <span class="label">最新筛选时间</span>
-    <strong>{{ summary.scan.scanned_at if summary.scan else "暂无" }}</strong>
-  </article>
-  <article class="panel">
-    <span class="label">最高股价</span>
-    <strong>{{ summary.params.max_price if summary.params else config.max_price }}</strong>
-  </article>
-  <article class="panel">
-    <span class="label">候选数量</span>
-    <strong>{{ summary.count }}</strong>
-  </article>
-  <article class="panel">
-    <span class="label">最高分候选</span>
-    <strong>{{ summary.top.code ~ " " ~ summary.top.name if summary.top else "暂无" }}</strong>
-  </article>
+<section class="workspace">
+  <aside class="config-sidebar" data-sidebar>
+    <div class="sidebar-head">
+      <div>
+        <p class="eyebrow">配置中心</p>
+        <h1>策略扫描</h1>
+      </div>
+      <button class="icon-button" type="button" aria-label="折叠配置栏" data-sidebar-toggle>‹</button>
+    </div>
+
+    <form method="post" action="/run-scan" class="scan-form" data-scan-form>
+      <label class="price-field">
+        <span>最高股价 max_price</span>
+        <input type="number" step="0.01" min="0" name="max_price" value="{{ config.max_price }}" required data-live-price>
+        <small>当前硬过滤：<output data-price-output>{{ "%.2f"|format(config.max_price) }}</output> 元</small>
+      </label>
+
+      <details class="fold-panel" open>
+        <summary>
+          <span>交易权限限制</span>
+          <b>{{ exclude_fields|length }} 项</b>
+        </summary>
+        <div class="exclude-grid">
+          {% for name, label, hint in exclude_fields %}
+          <label class="switch-card">
+            <input type="checkbox" name="{{ name }}" {% if config|attr(name) %}checked{% endif %}>
+            <span>{{ label }}<small>{{ hint }}</small></span>
+          </label>
+          {% endfor %}
+        </div>
+      </details>
+
+      <details class="fold-panel">
+        <summary>
+          <span>筛选条件</span>
+          <b>{{ filter_fields|length - 1 }} 项</b>
+        </summary>
+        <div class="form-grid filters">
+          {% for name, label, unit in filter_fields %}
+          {% if name != "max_price" %}
+          <label class="field-card">
+            <span>{{ label }}</span>
+            <input type="number" step="0.001" name="{{ name }}" value="{{ config|attr(name) }}" required>
+            {% if unit %}<small>{{ unit }}</small>{% else %}<small>{{ name }}</small>{% endif %}
+          </label>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </details>
+
+      <details class="fold-panel">
+        <summary>
+          <span>评分权重</span>
+          <b>{{ score_fields|length }} 项</b>
+        </summary>
+        <div class="score-grid">
+          {% for name, label in score_fields %}
+          <label class="score-card">
+            <span>{{ label }}</span>
+            <input type="number" step="1" name="{{ name }}" value="{{ config|attr(name) }}" required>
+          </label>
+          {% endfor %}
+        </div>
+      </details>
+
+      <button class="button primary" type="submit">
+        <span data-run-label>启动扫描</span>
+      </button>
+    </form>
+  </aside>
+
+  <main class="work-main">
+    <section class="main-hero">
+      <div>
+        <p class="eyebrow">工作台</p>
+        <h2>缩量阴线回踩10日线</h2>
+        <p>调整左侧参数后运行扫描。日志和结果都会保留在本页，刷新后仍可看到当前进程内的扫描输出和最近一次结果。</p>
+      </div>
+      <div class="status-pill" data-task-status>{{ "运行中" if not task_status.done else (summary.scan.status if summary.scan else "待运行") }}</div>
+    </section>
+
+    <section class="summary-grid">
+      <article class="stat-card">
+        <span class="label">最新筛选</span>
+        <strong>{{ summary.scan.scanned_at if summary.scan else "暂无记录" }}</strong>
+      </article>
+      <article class="stat-card">
+        <span class="label">候选数量</span>
+        <strong data-candidate-count>{{ summary.count }}</strong>
+      </article>
+      <article class="stat-card">
+        <span class="label">数据日期</span>
+        <strong data-data-date>
+          {{ summary.data_date if summary.data_date else "暂无" }}
+          {% if summary.data_date and summary.scan %}<small> {{ summary.scan.scanned_at[-8:] }}</small>{% endif %}
+        </strong>
+      </article>
+
+    </section>
+
+    <section class="panel progress-panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">扫描进度</p>
+          <h3 data-progress-title>
+            {% set progress = task_status.progress %}
+            {{ progress.completed if progress else 0 }}/{{ progress.total if progress else 0 }}
+          </h3>
+        </div>
+        <span class="status-pill soft" data-hit-count>命中 {{ task_status.progress.hits if task_status.progress else 0 }}</span>
+      </div>
+      <div class="progress-track">
+        {% set completed = task_status.progress.completed if task_status.progress else 0 %}
+        {% set total = task_status.progress.total if task_status.progress else 0 %}
+        <div class="progress-fill" data-progress-fill style="width: {{ (completed / total * 100) if total else 0 }}%"></div>
+      </div>
+      <p class="current-stock" data-current-stock>
+        {% if task_status.progress and task_status.progress.current_code %}
+        当前：{{ task_status.progress.current_code }} {{ task_status.progress.current_name }}
+        {% else %}
+        当前：等待启动
+        {% endif %}
+      </p>
+    </section>
+
+    {% if summary.scan and summary.scan.status == "failed" %}
+    <div class="alert">最近一次筛选失败：{{ summary.scan.error_message }}</div>
+    {% endif %}
+
+    <section class="panel log-panel" aria-live="polite">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">实时输出</p>
+          <h3>扫描日志</h3>
+        </div>
+      </div>
+      <div class="log-box" data-log-box>
+        {% if task_status.logs %}
+          {% for line in task_status.logs %}
+          <div class="log-line">{{ line }}</div>
+          {% endfor %}
+        {% else %}
+          <p class="log-placeholder">点击“启动扫描”后，这里会实时打印任务进度。</p>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="panel results-panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">候选结果</p>
+          <h3>评分排序</h3>
+        </div>
+        <span class="muted">最新扫描结果自动显示</span>
+      </div>
+      <div class="candidate-list" data-results-list>
+        {% if not candidates %}
+        <div class="empty">暂无候选股。运行扫描后结果会显示在这里。</div>
+        {% endif %}
+        {% for item in candidates %}
+        <article class="candidate-card">
+          <div class="candidate-title">
+            <div>
+              <span class="market-code">{{ item.trade_date }}</span>
+              <strong>{{ item.code }}</strong>
+              <span>{{ item.name }}</span>
+            </div>
+            <b><em>{{ item.score }}</em> 分</b>
+          </div>
+          <div class="metrics">
+            <span>收盘 <b>{{ "%.2f"|format(item.close) }}</b></span>
+            <span>涨跌 <b>{{ "%.2f%%"|format(item.pct_chg * 100) }}</b></span>
+            <span>MA10 <b>{{ "%.2f"|format(item.ma10) }}</b></span>
+            <span>距MA10 <b>{{ "%.2f%%"|format(item.distance_ma10_pct * 100) }}</b></span>
+            <span>量比 <b>{{ "%.2f"|format(item.volume_ratio_5) }}</b></span>
+          </div>
+          <div class="chips">
+            {% for reason in item.reasons %}<span class="chip good">{{ reason }}</span>{% endfor %}
+            {% for risk in item.risks %}<span class="chip warn">{{ risk }}</span>{% endfor %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
 </section>
-
-{% if summary.scan and summary.scan.status == "failed" %}
-<div class="alert">最近一次筛选失败：{{ summary.scan.error_message }}</div>
-{% endif %}
-
-<form method="post" action="/run-scan" class="scan-form">
-  <section class="section">
-    <div class="section-head">
-      <h1>运行筛选</h1>
-      <a class="button secondary" href="/candidates">查看候选</a>
-    </div>
-    <button class="button primary" type="submit">运行筛选</button>
-  </section>
-
-  <section class="section">
-    <h2>筛选条件</h2>
-    <div class="form-grid">
-      {% for name, label, unit in filter_fields %}
-      <label>
-        <span>{{ label }}</span>
-        <input type="number" step="0.001" name="{{ name }}" value="{{ config|attr(name) }}" required>
-        {% if unit %}<small>{{ unit }}</small>{% endif %}
-      </label>
-      {% endfor %}
-      <label class="check">
-        <input type="checkbox" name="exclude_st" checked>
-        <span>排除 ST / 退市</span>
-      </label>
-      <label class="check">
-        <input type="checkbox" name="exclude_bj" checked>
-        <span>排除北交所</span>
-      </label>
-    </div>
-  </section>
-
-  <section class="section">
-    <h2>评分权重</h2>
-    <div class="form-grid">
-      {% for name, label in score_fields %}
-      <label>
-        <span>{{ label }}</span>
-        <input type="number" step="1" name="{{ name }}" value="{{ config|attr(name) }}" required>
-      </label>
-      {% endfor %}
-    </div>
-  </section>
-</form>
 {% endblock %}
