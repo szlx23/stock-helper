@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}szl的szl的策略助手{% endblock %}</title>
+  <title>{% block title %}szl的策略助手{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
   <script defer src="{{ url_for('static', path='app.js') }}"></script>
 </head>
@@ -11,6 +11,7 @@
   <div class="screen-grid" aria-hidden="true"></div>
   <div class="scan-beam" aria-hidden="true"></div>
   <header class="topbar">
+    <button class="menu-btn" data-sidebar-toggle aria-label="菜单">☰</button>
     <a href="/" class="brand">
       <span class="brand-mark">SH</span>
       <span>szl的策略助手</span>
