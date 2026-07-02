@@ -24,12 +24,34 @@ if (priceInput && priceOutput) {
   syncPrice();
 }
 
-if (sidebar && sidebarToggle) {
-  sidebarToggle.addEventListener("click", () => {
-    sidebar.classList.toggle("is-collapsed");
-    sidebarToggle.textContent = sidebar.classList.contains("is-collapsed") ? "›" : "‹";
-  });
+// 侧边栏切换 & 抽屉效果
+const allSidebarToggles = document.querySelectorAll("[data-sidebar-toggle]");
+// 创建遮罩层
+let overlay = document.querySelector(".sidebar-overlay");
+if (!overlay) {
+  overlay = document.createElement("div");
+  overlay.className = "sidebar-overlay";
+  document.body.appendChild(overlay);
 }
+function openSidebar() {
+  sidebar.classList.add("is-open");
+  overlay.classList.add("is-open");
+}
+function closeSidebar() {
+  sidebar.classList.remove("is-open");
+  overlay.classList.remove("is-open");
+}
+allSidebarToggles.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (window.innerWidth <= 768) {
+      sidebar.classList.contains("is-open") ? closeSidebar() : openSidebar();
+    } else {
+      sidebar.classList.toggle("is-collapsed");
+      btn.textContent = sidebar.classList.contains("is-collapsed") ? "›" : "‹";
+    }
+  });
+});
+overlay.addEventListener("click", closeSidebar);
 
 function appendLog(line, tone = "normal") {
   if (!logBox) return;
