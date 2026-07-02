@@ -76,25 +76,18 @@
         <h2>缩量阴线回踩10日线</h2>
         
       </div>
-      <div class="status-pill" data-task-status>{{ "运行中" if not task_status.done else (summary.scan.status if summary.scan else "待运行") }}</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;color:var(--muted)">
+          {% if summary.data_date %}数据日期 {{ summary.data_date }}{% else %}暂无数据{% endif %}
+        </span>
+        <div class="status-pill" data-task-status>{{ "运行中" if not task_status.done else (summary.scan.status if summary.scan else "待运行") }}</div>
+      </div>
     </section>
 
     <section class="summary-grid">
-      <article class="stat-card">
-        <span class="label">最新筛选</span>
-        <strong>{{ summary.scan.scanned_at if summary.scan else "暂无记录" }}</strong>
-      </article>
-      <article class="stat-card">
-        <span class="label">候选数量</span>
-        <strong data-candidate-count>{{ summary.count }}</strong>
-      </article>
-      <article class="stat-card">
-        <span class="label">数据日期</span>
-        <strong data-data-date>
-          {{ summary.data_date if summary.data_date else "暂无" }}
-          {% if summary.data_date and summary.scan %}<small> {{ summary.scan.scanned_at[-8:] }}</small>{% endif %}
-        </strong>
-      </article>
+
+
+
 
     </section>
 
