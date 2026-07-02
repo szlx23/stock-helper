@@ -18,7 +18,7 @@
         <small>当前硬过滤：<output data-price-output>{{ "%.2f"|format(config.max_price) }}</output> 元</small>
       </label>
 
-      <details class="fold-panel" open>
+      <details class="fold-panel">
         <summary>
           <span>交易权限限制</span>
           <b>{{ exclude_fields|length }} 项</b>
@@ -69,7 +69,6 @@
     </form>
   </aside>
 
-  <button class="menu-btn" data-sidebar-toggle aria-label="菜单">☰</button>
   <main class="work-main">
     <section class="main-hero">
       <div>
