@@ -1,0 +1,7 @@
+{
+  "overall_status": "pass",
+  "global_hard_gate_results": {
+    "pytest": "pass"
+  },
+  "p0_project_acceptance_pass_rate": 1.0
+}

@@ -1,0 +1,6 @@
+{
+  "module": "02-web-scan-candidates",
+  "status": "pass",
+  "p0_pass_rate": 1.0,
+  "commands_run": ["timeout 60 .venv/bin/pytest -q"]
+}

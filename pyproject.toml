@@ -1,0 +1,25 @@
+[project]
+name = "stock-helper"
+version = "0.1.0"
+description = "Personal A-share short-term strategy helper"
+requires-python = ">=3.10"
+dependencies = [
+    "baostock>=0.8.9",
+    "fastapi>=0.111.0,<0.116.0",
+    "jinja2>=3.1.0",
+    "python-multipart>=0.0.9",
+    "uvicorn[standard]>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.27.0",
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+stock-helper = "stock_helper.app:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

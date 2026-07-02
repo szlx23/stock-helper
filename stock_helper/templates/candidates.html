@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}候选股 - A股策略助手{% endblock %}
+{% block content %}
+<section class="section">
+  <div class="section-head">
+    <div>
+      <h1>候选股</h1>
+      <p class="muted">
+        {{ summary.scan.scanned_at if summary.scan else "尚未运行筛选" }}
+        {% if summary.params %} · 最高股价 {{ summary.params.max_price }}{% endif %}
+      </p>
+    </div>
+    <a class="button secondary" href="/">返回筛选</a>
+  </div>
+</section>
+
+{% if not candidates %}
+<section class="empty">暂无候选股。可返回首页调整参数后运行筛选。</section>
+{% endif %}
+
+<section class="candidate-list">
+  {% for item in candidates %}
+  <article class="candidate-card">
+    <div class="candidate-title">
+      <div>
+        <strong>{{ item.code }}</strong>
+        <span>{{ item.name }}</span>
+      </div>
+      <b>{{ item.score }} 分</b>
+    </div>
+    <div class="metrics">
+      <span>日期 <b>{{ item.trade_date }}</b></span>
+      <span>收盘 <b>{{ "%.2f"|format(item.close) }}</b></span>
+      <span>涨跌 <b>{{ "%.2f%%"|format(item.pct_chg * 100) }}</b></span>
+      <span>MA5 <b>{{ "%.2f"|format(item.ma5) }}</b></span>
+      <span>MA10 <b>{{ "%.2f"|format(item.ma10) }}</b></span>
+      <span>MA20 <b>{{ "%.2f"|format(item.ma20) }}</b></span>
+      <span>MA30 <b>{{ "%.2f"|format(item.ma30) }}</b></span>
+      <span>距MA10 <b>{{ "%.2f%%"|format(item.distance_ma10_pct * 100) }}</b></span>
+      <span>量/5日均量 <b>{{ "%.2f"|format(item.volume_ratio_5) }}</b></span>
+      <span>换手率 <b>{{ "%.2f"|format(item.turn) }}</b></span>
+    </div>
+    <div class="chips">
+      {% for reason in item.reasons %}<span class="chip good">{{ reason }}</span>{% endfor %}
+      {% for risk in item.risks %}<span class="chip warn">{{ risk }}</span>{% endfor %}
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}首页 - A股策略助手{% endblock %}
+{% block content %}
+<section class="summary-grid">
+  <article class="panel">
+    <span class="label">最新筛选时间</span>
+    <strong>{{ summary.scan.scanned_at if summary.scan else "暂无" }}</strong>
+  </article>
+  <article class="panel">
+    <span class="label">最高股价</span>
+    <strong>{{ summary.params.max_price if summary.params else config.max_price }}</strong>
+  </article>
+  <article class="panel">
+    <span class="label">候选数量</span>
+    <strong>{{ summary.count }}</strong>
+  </article>
+  <article class="panel">
+    <span class="label">最高分候选</span>
+    <strong>{{ summary.top.code ~ " " ~ summary.top.name if summary.top else "暂无" }}</strong>
+  </article>
+</section>
+
+{% if summary.scan and summary.scan.status == "failed" %}
+<div class="alert">最近一次筛选失败：{{ summary.scan.error_message }}</div>
+{% endif %}
+
+<form method="post" action="/run-scan" class="scan-form">
+  <section class="section">
+    <div class="section-head">
+      <h1>运行筛选</h1>
+      <a class="button secondary" href="/candidates">查看候选</a>
+    </div>
+    <button class="button primary" type="submit">运行筛选</button>
+  </section>
+
+  <section class="section">
+    <h2>筛选条件</h2>
+    <div class="form-grid">
+      {% for name, label, unit in filter_fields %}
+      <label>
+        <span>{{ label }}</span>
+        <input type="number" step="0.001" name="{{ name }}" value="{{ config|attr(name) }}" required>
+        {% if unit %}<small>{{ unit }}</small>{% endif %}
+      </label>
+      {% endfor %}
+      <label class="check">
+        <input type="checkbox" name="exclude_st" checked>
+        <span>排除 ST / 退市</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="exclude_bj" checked>
+        <span>排除北交所</span>
+      </label>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>评分权重</h2>
+    <div class="form-grid">
+      {% for name, label in score_fields %}
+      <label>
+        <span>{{ label }}</span>
+        <input type="number" step="1" name="{{ name }}" value="{{ config|attr(name) }}" required>
+      </label>
+      {% endfor %}
+    </div>
+  </section>
+</form>
+{% endblock %}

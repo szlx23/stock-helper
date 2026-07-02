@@ -1,0 +1,2 @@
+"""Stock helper web application."""
+

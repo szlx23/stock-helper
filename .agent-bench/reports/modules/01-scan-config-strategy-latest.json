@@ -1,0 +1,6 @@
+{
+  "module": "01-scan-config-strategy",
+  "status": "pass",
+  "p0_pass_rate": 1.0,
+  "commands_run": ["timeout 60 .venv/bin/pytest -q"]
+}

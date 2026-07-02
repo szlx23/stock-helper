@@ -1,0 +1,29 @@
+p0:
+  - id: P0-001
+    subject: StrategyConfig
+    action: carries hard filter and score weight values from submitted input
+    expected: all requested fields have defaults and can be overridden
+    verification: tests/test_strategy.py and tests/test_scanner_db_app.py
+  - id: P0-002
+    subject: Hard filter
+    action: evaluates max_price before scoring
+    expected: stocks above max_price are rejected without price scoring
+    verification: tests/test_strategy.py::test_price_above_max_price_is_hard_rejected
+  - id: P0-003
+    subject: Scoring
+    action: applies custom score weights
+    expected: changing score_yin_line changes the computed score by the submitted delta
+    verification: tests/test_strategy.py::test_score_uses_custom_weights
+  - id: P0-004
+    subject: Scan persistence
+    action: saves scan task and candidates
+    expected: latest summary exposes parameter snapshot, hit count, and top candidate
+    verification: tests/test_scanner_db_app.py::test_database_saves_scan_params_and_candidates
+  - id: P0-005
+    subject: Mobile web pages
+    action: render home scan form and candidate cards
+    expected: home contains max_price and score fields; candidates render from latest scan
+    verification: tests/test_scanner_db_app.py::test_home_renders_scan_form
+global_hard_gates:
+  - pytest
+completion_rule: all P0 checks pass and README startup instructions exist
