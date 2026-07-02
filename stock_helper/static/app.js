@@ -52,6 +52,10 @@ function connectEvents() {
   if (taskStatus) taskStatus.textContent = "运行中";
   eventSource.onmessage = async (event) => {
     const payload = JSON.parse(event.data);
+    if (payload.type === "hits") {
+      appendHits(payload.candidates || []);
+      return;
+    }
     if (payload.type === "progress") {
       renderProgress(payload.progress);
       return;
@@ -110,6 +114,23 @@ function renderSummary(summary) {
   if (topCandidate) {
     topCandidate.textContent = summary.top ? `${summary.top.code} ${summary.top.name}` : "暂无";
   }
+}
+
+let liveHits = [];
+
+function appendHits(newHits) {
+  liveHits = liveHits.concat(newHits);
+  liveHits.sort((a, b) => b.score - a.score);
+  renderLiveHits();
+}
+
+function renderLiveHits() {
+  if (!resultsList) return;
+  if (!liveHits.length) {
+    resultsList.innerHTML = '<div class="empty">扫描中，命中后会实时展示……</div>';
+    return;
+  }
+  resultsList.innerHTML = liveHits.map(candidateCard).join("");
 }
 
 function renderResults(candidates) {

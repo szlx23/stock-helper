@@ -15,6 +15,8 @@ class ScanTaskManager:
         self._cancel_event: threading.Event | None = None
         self._logs: list[str] = []
         self._progress: dict = {}
+        self._live_hits: list[dict] = []
+        self._live_offset = 0
         self._done = True
 
     def start(self, config: StrategyConfig) -> int:
@@ -27,6 +29,8 @@ class ScanTaskManager:
             cancel_event = threading.Event()
             self._cancel_event = cancel_event
             self._logs = []
+            self._live_hits = []
+            self._live_offset = 0
             self._progress = {
                 "completed": 0,
                 "total": 0,
@@ -42,10 +46,13 @@ class ScanTaskManager:
         thread.start()
         return task_id
 
-    def snapshot(self, offset: int = 0) -> tuple[int, list[str], bool, int, dict]:
+    def snapshot(self, offset: int = 0, hit_offset: int = 0) -> tuple[int, list[str], bool, int, dict, list[dict], int]:
         with self._lock:
             logs = self._logs[offset:]
-            return self._task_id, logs, self._done, len(self._logs), dict(self._progress)
+            hits = self._live_hits[hit_offset:]
+            hit_off = len(self._live_hits)
+            return self._task_id, logs, self._done, len(self._logs), dict(self._progress), hits, hit_off
+            return self._task_id, logs, self._done, len(self._logs), dict(self._progress), hits, hit_off
 
     def status(self) -> dict:
         with self._lock:
@@ -54,6 +61,7 @@ class ScanTaskManager:
                 "logs": list(self._logs),
                 "progress": dict(self._progress),
                 "done": self._done,
+                "live_hits": list(self._live_hits),
             }
 
     def _run_task(self, task_id: int, config: StrategyConfig, cancel_event: threading.Event) -> None:
@@ -87,9 +95,16 @@ class ScanTaskManager:
         with self._lock:
             self._append_locked(message)
 
+    def add_hit(self, item: dict) -> None:
+        with self._lock:
+            self._live_hits.append(item)
+
     def update_progress(self, **values) -> None:
         with self._lock:
+            detail = values.pop("hits_detail", None)
             self._progress.update(values)
+            if detail:
+                self._live_hits.append(detail)
 
     def _append_locked(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
