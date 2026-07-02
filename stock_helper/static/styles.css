@@ -686,3 +686,46 @@ summary:focus-visible,
 .run-bar input::placeholder {
   color: var(--muted);
 }
+
+@media (max-width: 768px) {
+  .app-shell {
+    flex-direction: column;
+  }
+  .config-sidebar {
+    width: 100%;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 12px;
+  }
+  .config-sidebar.is-collapsed {
+    max-height: 48px;
+    overflow: hidden;
+  }
+  .config-sidebar.is-collapsed .scan-form,
+  .config-sidebar.is-collapsed .sidebar-head h1,
+  .config-sidebar.is-collapsed .sidebar-head .eyebrow,
+  .config-sidebar.is-collapsed details {
+    display: none;
+  }
+  .sidebar-toggle {
+    display: block;
+    position: absolute;
+    right: 12px;
+    top: 12px;
+    font-size: 1.4rem;
+    background: none;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .work-main {
+    padding: 12px;
+  }
+  .summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .run-bar, .run-bar + div {
+    flex-wrap: wrap;
+  }
+}
