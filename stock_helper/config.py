@@ -12,7 +12,7 @@ class StrategyConfig:
     burst_vol_ratio: float = 1.25
     limit_up_pct: float = 0.095
     max_recent_rise: float = 0.65
-    lookback_days: int = 160
+    lookback_days: int = 80
     cache_refresh_days: int = 7
     max_workers: int = 8
     max_scan_count: int = 5000
