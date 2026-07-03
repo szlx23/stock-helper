@@ -41,25 +41,14 @@ sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install -e "${APP_DIR
 
 echo ""
 echo "数据源检查："
-timeout 30 sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -c "
+timeout 15 sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -c "
 from stock_helper.data.multi_provider import make_multi_provider
-logs = []
-def log(msg):
-    logs.append(msg)
-try:
-    p = make_multi_provider(log=log)
-    for l in logs:
-        print(f'  {l}')
-    p.__enter__()
-    stocks = p.list_stocks()
-    print(f'  股票列表: {len(stocks)} 只')
-    p.__exit__(None, None, None)
-except Exception as e:
-    for l in logs:
-        print(f'  {l}')
-    print(f'  ✗ 数据源不可用: {e}')
-    exit(1)
-" || echo "  ⚠ 数据源检查超时，可稍后在 Web 页面中测试"
+p = make_multi_provider()
+p.__enter__()
+stocks = p.list_stocks()
+print(f'  数据源正常，股票列表: {len(stocks)} 只')
+p.__exit__(None, None, None)
+" 2>&1 || echo "  ⚠ 数据源检查超时或失败，可稍后在 Web 页面测试"
 
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<SERVICE
 [Unit]
