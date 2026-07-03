@@ -50,8 +50,8 @@ class StrategyConfig:
             raise ValueError("缓存补最近天数必须在 0 到 365 之间")
         if not 0 <= self.stock_list_ttl_minutes <= 10080:
             raise ValueError("股票列表缓存期必须在 0 到 10080 分钟之间")
-        if not 1 <= self.fetch_workers <= 8:
-            raise ValueError("并行拉取数必须在 1 到 8 之间")
+        if not 1 <= self.fetch_workers <= 16:
+            raise ValueError(f"并行拉取数必须在 1 到 16 之间（当前为 {self.fetch_workers}）")
         if not 1 <= self.max_workers <= 24:
             raise ValueError("并行线程数必须在 1 到 24 之间")
         if not 1 <= self.max_scan_count <= 100000:

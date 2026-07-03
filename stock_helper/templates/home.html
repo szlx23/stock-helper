@@ -43,7 +43,16 @@
           {% if name != "max_price" %}
           <label class="field-card">
             <span>{{ label }}</span>
-            <input type="number" step="{{ 1 if name in ['lookback_days', 'cache_refresh_days', 'stock_list_ttl_minutes', 'fetch_workers', 'max_workers', 'max_scan_count'] else 0.001 }}" name="{{ name }}" value="{{ config|attr(name) }}" required>
+            <input type="number"
+                   step="{{ 1 if name in ['lookback_days', 'cache_refresh_days', 'stock_list_ttl_minutes', 'fetch_workers', 'max_workers', 'max_scan_count'] else 0.001 }}"
+                   {% if name == 'fetch_workers' %}min="1" max="16"
+                   {% elif name == 'max_workers' %}min="1" max="24"
+                   {% elif name == 'lookback_days' %}min="35" max="1000"
+                   {% elif name == 'cache_refresh_days' %}min="0" max="365"
+                   {% elif name == 'stock_list_ttl_minutes' %}min="0" max="10080"
+                   {% elif name == 'max_scan_count' %}min="1" max="100000"
+                   {% endif %}
+                   name="{{ name }}" value="{{ config|attr(name) }}" required>
             {% if unit %}<small>{{ unit }}</small>{% else %}<small>{{ name }}</small>{% endif %}
           </label>
           {% endif %}

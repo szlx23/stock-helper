@@ -108,7 +108,7 @@ class StockScanner:
             _log(log, "扫描完成：预过滤后没有需要分析的股票")
             return []
 
-        fetch_workers = max(1, min(config.fetch_workers, 8))
+        fetch_workers = max(1, min(config.fetch_workers, 16))
         analysis_workers = max(1, min(config.max_workers, 24))
         provider_pool = _ThreadLocalProviderPool(self._provider_factory)
         fetch_executor = ThreadPoolExecutor(max_workers=fetch_workers, thread_name_prefix="stock-fetch")

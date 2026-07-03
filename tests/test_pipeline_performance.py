@@ -141,8 +141,9 @@ def test_pipeline_cancellation_does_not_drain_full_queue(tmp_path, monkeypatch):
 
 
 def test_fetch_worker_boundary_is_validated():
-    with pytest.raises(ValueError, match="并行拉取数"):
-        StrategyConfig(fetch_workers=9).validate()
+    StrategyConfig(fetch_workers=16).validate()
+    with pytest.raises(ValueError, match="当前为 17"):
+        StrategyConfig(fetch_workers=17).validate()
 
 
 def test_mixed_universe_analyzes_only_current_day_stocks(tmp_path, monkeypatch):
