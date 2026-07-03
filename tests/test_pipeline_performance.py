@@ -198,3 +198,35 @@ def test_mixed_universe_analyzes_only_current_day_stocks(tmp_path, monkeypatch):
     final = [event for event in progress_events if event.get("phase") == "pipeline"][-1]
     assert final["realtime_skipped"] == 2
     assert final["analyzed"] == 2
+
+
+def test_missing_realtime_snapshot_falls_back_to_history_pull(tmp_path, monkeypatch):
+    monkeypatch.setenv("STOCK_HELPER_DB", str(tmp_path / "fallback-realtime.db"))
+    db.init_db()
+
+    class MissingSnapshotProvider(DelayedProvider):
+        SOURCE_NAME = "MissingSnapshot"
+
+        def get_history_range(self, code, start_date, end_date):
+            rows = make_rows()
+            rows[-1]["date"] = _market_today().isoformat()
+            return rows
+
+    MissingSnapshotProvider.stocks = [StockInfo("sh.600000", "示例0")]
+
+    def provider_factory(log=None):
+        return MultiProvider([MissingSnapshotProvider], log=log)
+
+    progress_events = []
+    candidates = StockScanner(
+        provider_factory=provider_factory,
+        snapshot_loader=lambda log=None: {},
+    ).run(
+        StrategyConfig(fetch_workers=1, max_workers=1),
+        progress=lambda **values: progress_events.append(values),
+    )
+
+    final = [event for event in progress_events if event.get("phase") == "pipeline"][-1]
+    assert candidates
+    assert final["latest_bar"]["date"] == _market_today().isoformat()
+    assert final["latest_source"] == "历史回补"

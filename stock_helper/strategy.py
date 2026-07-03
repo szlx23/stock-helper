@@ -34,8 +34,6 @@ def hard_filter(code: str, name: str, rows: list[dict], config: StrategyConfig) 
         rejects.append("创业板股票")
     if _f(latest.get("close")) > config.max_price:
         rejects.append(f"收盘价超过最高股价{config.max_price:g}")
-    if _f(latest.get("close")) >= _f(latest.get("open")):
-        rejects.append("当前不是阴线")
     if _missing_ma(latest):
         rejects.append("均线数据不足")
         return rejects
@@ -43,8 +41,6 @@ def hard_filter(code: str, name: str, rows: list[dict], config: StrategyConfig) 
         rejects.append("当前阴线爆量")
     if abs(_f(latest.get("distance_ma10_pct"))) > config.near_ma10_pct:
         rejects.append("距离10日线过远")
-    if _f(latest.get("close")) < _f(latest.get("ma20")):
-        rejects.append("收盘价跌破20日线")
     if _f(latest.get("ma10")) < _f(latest.get("ma20")):
         rejects.append("10日线低于20日线")
     if _f(latest.get("close")) < _f(latest.get("ma30")) * (1 - config.near_ma10_pct):
@@ -92,6 +88,12 @@ def score_stock(rows: list[dict], config: StrategyConfig) -> tuple[int, list[str
     if recent_rise > config.max_recent_rise:
         score += config.score_recent_rise_too_high
         risks.append(f"近40日低点到高点涨幅{recent_rise:.1%}")
+    if _f(latest.get("close")) >= _f(latest.get("open")):
+        risks.append("当前不是阴线")
+    if _f(latest.get("close")) < _f(latest.get("ma20")):
+        risks.append("收盘价跌破20日线")
+    if _f(latest.get("ma10")) < _f(latest.get("ma20")):
+        risks.append("10日线低于20日线")
     if latest.get("volume_ratio_5") and _f(latest.get("volume_ratio_5")) > config.shrink_vol_ratio:
         risks.append("当前未明显缩量")
     if not _ma_bull(latest):

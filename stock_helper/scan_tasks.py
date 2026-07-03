@@ -40,6 +40,9 @@ class ScanTaskManager:
                 "hits": 0,
                 "current_code": "",
                 "current_name": "",
+                "current_action": "",
+                "latest_bar": None,
+                "latest_source": "",
             }
             self._done = False
             self._outcome = "running"

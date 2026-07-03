@@ -73,6 +73,7 @@ class StockScanner:
 
         _log(log, f"流水线启动：{config.fetch_workers} 路拉取，{config.max_workers} 路分析（列表：{source}）")
         _log(log, f"实时硬门槛：仅分析本轮成功拉取且包含 {_market_today().isoformat()} 有效日线的股票")
+        _log(log, "缺失实时快照时将自动回退历史接口补齐当天数据")
         _log(log, f"K线策略：保留 {config.lookback_days} 日，增量补缺至当日")
         return self._run_pipeline(stocks, config, snapshots, log, progress, stop_event)
 
@@ -126,6 +127,8 @@ class StockScanner:
         fetched = analyzed = skipped = realtime_skipped = fetch_fails = analysis_failures = analyzable = 0
         detached_cleanup = False
         last_completion_at = time.monotonic()
+        last_latest_bar = None
+        last_latest_source = ""
 
         def submit_fetches() -> None:
             while len(fetch_pending) < fetch_workers * 2:
@@ -137,7 +140,9 @@ class StockScanner:
                 )
                 fetch_pending[future] = stock
 
-        def emit_progress(stock: StockInfo | None = None, action: str = "") -> None:
+        def emit_progress(stock: StockInfo | None = None, action: str = "", **extra) -> None:
+            latest_bar = extra.pop("latest_bar", last_latest_bar)
+            latest_source = extra.pop("latest_source", last_latest_source)
             _progress(
                 progress,
                 phase="pipeline",
@@ -151,6 +156,9 @@ class StockScanner:
                 current_code=stock.code if stock else "",
                 current_name=stock.name if stock else "",
                 current_action=action,
+                latest_bar=latest_bar,
+                latest_source=latest_source,
+                **extra,
             )
 
         submit_fetches()
@@ -194,11 +202,11 @@ class StockScanner:
                         stock = fetch_pending.pop(future)
                         fetched += 1
                         try:
-                            history, bars_before, realtime_verified = future.result()
+                            history, bars_before, realtime_verified, latest_bar, latest_source = future.result()
                         except ScanCancelled:
                             raise
                         except Exception:
-                            history, bars_before, realtime_verified = [], 0, False
+                            history, bars_before, realtime_verified, latest_bar, latest_source = [], 0, False, None, ""
                         if not realtime_verified:
                             realtime_skipped += 1
                         if realtime_verified and len(history) >= 35:
@@ -211,7 +219,10 @@ class StockScanner:
                             skipped += 1
                             if bars_before < 35:
                                 fetch_fails += 1
-                        emit_progress(stock, "fetch")
+                        if latest_bar is not None:
+                            last_latest_bar = latest_bar
+                            last_latest_source = latest_source
+                        emit_progress(stock, "fetch", latest_bar=latest_bar, latest_source=latest_source)
                         submit_fetches()
                         if fetched == total or fetched % 50 == 0 or (fetched <= 10 and fetched % 5 == 0):
                             _log(log, f"流水线拉取 {fetched}/{total}，已分析 {analyzed}，非实时 {realtime_skipped}，跳过 {skipped}，命中 {len(passed)}")
@@ -286,10 +297,15 @@ class StockScanner:
             raise ScanCancelled("扫描已取消")
         cached, _ = db.get_cached_bars_state(stock.code, config.lookback_days)
         bars_before = len(cached)
-        if realtime_row is None:
-            return [], bars_before, False
+        source = "实时快照"
         try:
-            provider = None if bars_before >= 35 else provider_pool.get()
+            provider = None
+            if realtime_row is None or bars_before < 35:
+                provider = provider_pool.get()
+                if realtime_row is None:
+                    source = "历史回补"
+                else:
+                    source = "实时快照+历史补齐"
             history = ensure_history_cached(
                 stock.code,
                 config,
@@ -298,8 +314,9 @@ class StockScanner:
                 realtime_row=realtime_row,
             )
         except RealtimeDataUnavailable:
-            return [], bars_before, False
-        return history, bars_before, True
+            return [], bars_before, False, None, source
+        latest_bar = history[-1] if history else None
+        return history, bars_before, True, latest_bar, source
 
     def _prepare_histories(self, stocks, config, provider, log=None, progress=None, stop_event=None) -> dict[str, list[dict]]:
         histories: dict[str, list[dict]] = {}

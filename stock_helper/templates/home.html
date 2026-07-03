@@ -138,6 +138,34 @@
         当前：等待启动
         {% endif %}
       </p>
+      <div class="data-snapshot" data-latest-data-box>
+        <div class="data-snapshot-head">
+          <p class="eyebrow">已拉取数据</p>
+          <span class="muted" data-latest-data-source>
+            {% if task_status.progress and task_status.progress.latest_source %}
+            {{ task_status.progress.latest_source }}
+            {% else %}
+            等待启动
+            {% endif %}
+          </span>
+        </div>
+        <div class="data-snapshot-body" data-latest-data-body>
+          {% if task_status.progress and task_status.progress.latest_bar %}
+          <div class="data-snapshot-grid">
+            <span>股票 <b>{{ task_status.progress.current_code }} {{ task_status.progress.current_name }}</b></span>
+            <span>日期 <b>{{ task_status.progress.latest_bar.date }}</b></span>
+            <span>开盘 <b>{{ "%.2f"|format(task_status.progress.latest_bar.open) }}</b></span>
+            <span>最高 <b>{{ "%.2f"|format(task_status.progress.latest_bar.high) }}</b></span>
+            <span>最低 <b>{{ "%.2f"|format(task_status.progress.latest_bar.low) }}</b></span>
+            <span>收盘 <b>{{ "%.2f"|format(task_status.progress.latest_bar.close) }}</b></span>
+            <span>成交量 <b>{{ "%.0f"|format(task_status.progress.latest_bar.volume) }}</b></span>
+            <span>换手 <b>{{ "%.2f"|format(task_status.progress.latest_bar.turn) }}</b></span>
+          </div>
+          {% else %}
+          <div class="empty compact">这里会显示刚拉取到的股票最新日期和当天行情。</div>
+          {% endif %}
+        </div>
+      </div>
     </section>
 
 

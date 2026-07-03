@@ -13,6 +13,8 @@ const progressTitle = document.querySelector("[data-progress-title]");
 const progressFill = document.querySelector("[data-progress-fill]");
 const currentStock = document.querySelector("[data-current-stock]");
 const hitCount = document.querySelector("[data-hit-count]");
+const latestDataSource = document.querySelector("[data-latest-data-source]");
+const latestDataBody = document.querySelector("[data-latest-data-body]");
 const streamState = document.querySelector("[data-stream-state]");
 const clearLogButton = document.querySelector("[data-clear-log]");
 const runButton = document.querySelector("button[form='scan-form']");
@@ -221,6 +223,7 @@ function renderProgress(progress) {
     const action = progress.current_action === "fetch" ? "拉取完成" : progress.current_action === "analysis" ? "分析完成" : phase;
     currentStock.textContent = code ? `${action}：${code} ${name}` : "当前：等待启动";
   }
+  renderLatestData(progress.latest_bar, progress.latest_source, progress.current_code, progress.current_name);
 }
 
 function renderSummary(summary) {
@@ -229,6 +232,29 @@ function renderSummary(summary) {
   if (topCandidate) {
     topCandidate.textContent = summary.top ? `${summary.top.code} ${summary.top.name}` : "暂无";
   }
+}
+
+function renderLatestData(bar, source, code, name) {
+  if (latestDataSource) {
+    latestDataSource.textContent = source || "等待启动";
+  }
+  if (!latestDataBody) return;
+  if (!bar) {
+    latestDataBody.innerHTML = '<div class="empty compact">这里会显示刚拉取到的股票最新日期和当天行情。</div>';
+    return;
+  }
+  latestDataBody.innerHTML = `
+    <div class="data-snapshot-grid">
+      <span>股票 <b>${escapeHtml(code)} ${escapeHtml(name)}</b></span>
+      <span>日期 <b>${escapeHtml(bar.date)}</b></span>
+      <span>开盘 <b>${formatNumber(bar.open)}</b></span>
+      <span>最高 <b>${formatNumber(bar.high)}</b></span>
+      <span>最低 <b>${formatNumber(bar.low)}</b></span>
+      <span>收盘 <b>${formatNumber(bar.close)}</b></span>
+      <span>成交量 <b>${formatNumber(bar.volume)}</b></span>
+      <span>换手 <b>${formatNumber(bar.turn)}</b></span>
+    </div>
+  `;
 }
 
 let liveHits = [];
