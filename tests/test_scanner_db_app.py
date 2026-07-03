@@ -148,6 +148,15 @@ def test_unchecked_exclude_options_parse_as_false():
     assert config.exclude_chinext is False
 
 
+def test_legacy_form_field_mismatch_restores_fetch_worker_default():
+    config = _config_from_form(
+        FormData({"fetch_workers": "10000", "max_scan_count": "10000"})
+    )
+
+    assert config.fetch_workers == 4
+    assert config.max_scan_count == 10000
+
+
 def test_scanner_uses_cached_stock_list_when_provider_fails(tmp_path, monkeypatch):
     """BaoStock fails but AKShare succeeds – MultiProvider should fall through."""
     monkeypatch.setenv("STOCK_HELPER_DB", str(tmp_path / "fallback.db"))

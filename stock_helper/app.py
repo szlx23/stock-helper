@@ -187,6 +187,14 @@ def scan_status():
 
 def _config_from_form(form) -> StrategyConfig:
     values = dict(form)
+    # Compatibility for an older rendered form that could submit max_scan_count
+    # into fetch_workers after fields were added/reordered.
+    if "fetch_workers" in values and values.get("fetch_workers") == values.get("max_scan_count"):
+        try:
+            if float(values["fetch_workers"]) > 16:
+                values["fetch_workers"] = str(StrategyConfig().fetch_workers)
+        except (TypeError, ValueError):
+            pass
     for name, _, _ in EXCLUDE_FIELDS:
         values[name] = name in form
     return StrategyConfig.from_mapping(values)
