@@ -39,3 +39,19 @@
 - Reason: Live APIs are unstable and unsuitable as a hard gate.
 - Impact if wrong: External API drift may only appear during deployment.
 - How to change later: Add opt-in provider integration smoke tests.
+
+## Assumption: Use bounded market-data concurrency
+
+- Decision: Default to four concurrent fetch workers, configurable from one to eight.
+- Risk level: medium.
+- Reason: Four workers materially reduce first-run latency without creating unbounded load against public data sources.
+- Impact if wrong: A provider with stricter rate limits may require a lower value.
+- How to change later: Set `fetch_workers` in the scan form; use two when rate limiting is observed.
+
+## Assumption: Current-scan daily bar is mandatory
+
+- Decision: Historical K-line cache only supplies the lookback window. Every stock must be fetched again in the current scan and the response must contain today's Asia/Shanghai bar before analysis. Only the stock list retains a 12-hour cache.
+- Risk level: medium.
+- Reason: The user explicitly requires current-day data up to the scan moment as a hard eligibility gate.
+- Impact if wrong: On holidays, before the provider publishes today's bar, or during provider outages, no stocks may be analyzed.
+- How to change later: This rule must only be relaxed through an explicit product requirement change; it is not a performance toggle.

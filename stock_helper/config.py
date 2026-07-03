@@ -1,4 +1,5 @@
 from dataclasses import asdict, dataclass, fields
+import math
 
 
 @dataclass(slots=True)
@@ -14,8 +15,10 @@ class StrategyConfig:
     max_recent_rise: float = 0.65
     lookback_days: int = 80
     cache_refresh_days: int = 7
+    stock_list_ttl_minutes: int = 720
+    fetch_workers: int = 4
     max_workers: int = 8
-    max_scan_count: int = 5000
+    max_scan_count: int = 10000
     exclude_st: bool = True
     exclude_bj: bool = True
     exclude_star: bool = True
@@ -35,16 +38,24 @@ class StrategyConfig:
     score_recent_rise_too_high: int = -15
 
     def validate(self) -> None:
+        for item in fields(self):
+            value = getattr(self, item.name)
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError(f"{item.name} 必须是有限数值")
         if self.max_price <= 0:
             raise ValueError("最高股价必须大于 0")
-        if self.lookback_days < 35:
-            raise ValueError("历史回看天数不能少于 35")
-        if self.cache_refresh_days < 0:
-            raise ValueError("缓存补最近天数不能为负数")
+        if not 35 <= self.lookback_days <= 1000:
+            raise ValueError("历史回看天数必须在 35 到 1000 之间")
+        if not 0 <= self.cache_refresh_days <= 365:
+            raise ValueError("缓存补最近天数必须在 0 到 365 之间")
+        if not 0 <= self.stock_list_ttl_minutes <= 10080:
+            raise ValueError("股票列表缓存期必须在 0 到 10080 分钟之间")
+        if not 1 <= self.fetch_workers <= 8:
+            raise ValueError("并行拉取数必须在 1 到 8 之间")
         if not 1 <= self.max_workers <= 24:
             raise ValueError("并行线程数必须在 1 到 24 之间")
-        if self.max_scan_count < 1:
-            raise ValueError("分析数量上限必须大于 0")
+        if not 1 <= self.max_scan_count <= 100000:
+            raise ValueError("分析数量上限必须在 1 到 100000 之间")
         for name in (
             "near_ma10_pct",
             "max_ma10_ma20_gap",
@@ -66,7 +77,10 @@ class StrategyConfig:
             if item.type is bool:
                 parsed[item.name] = _parse_bool(raw)
             elif item.type is int:
-                parsed[item.name] = int(float(raw))
+                numeric = float(raw)
+                if not math.isfinite(numeric) or not numeric.is_integer():
+                    raise ValueError(f"{item.name} 必须是整数")
+                parsed[item.name] = int(numeric)
             elif item.type is float:
                 parsed[item.name] = float(raw)
             else:
@@ -99,6 +113,8 @@ FILTER_FIELDS = [
     ("limit_up_pct", "接近涨停阈值", ""),
     ("lookback_days", "历史回看天数", "天"),
     ("cache_refresh_days", "缓存补最近天数", "天"),
+    ("stock_list_ttl_minutes", "股票列表缓存期", "分钟"),
+    ("fetch_workers", "并行拉取数", "路"),
     ("max_workers", "并行线程数", ""),
     ("max_scan_count", "分析数量上限", "只"),
 ]

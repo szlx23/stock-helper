@@ -39,6 +39,61 @@ p0:
     action: active source fails during a request
     expected: switch to the next configured source and retry the request
     verification: tests/test_scanner_db_app.py::test_multi_provider_falls_back_when_active_source_request_fails
+  - id: P0-009
+    subject: Configuration boundaries
+    action: receives non-finite or operationally unsafe values
+    expected: rejects them before task creation
+    verification: tests/test_scanner_db_app.py config boundary tests
+  - id: P0-010
+    subject: Scan consistency
+    action: completes, fails, cancels, restarts, or receives a concurrent start
+    expected: exposes one accurate terminal state and commits success atomically
+    verification: tests/test_scanner_db_app.py lifecycle and atomicity tests
+  - id: P0-011
+    subject: Realtime delivery
+    action: log retention is exceeded or a scan runs longer than thirty minutes
+    expected: offsets continue advancing and SSE remains connected until terminal state
+    verification: tests/test_scanner_db_app.py::test_log_offset_continues_after_server_log_trimming and source inspection
+  - id: P0-012
+    subject: Operations baseline
+    action: service is monitored or rendered in a browser
+    expected: health endpoint checks SQLite and responses receive baseline security headers
+    verification: health and middleware tests in tests/test_scanner_db_app.py
+  - id: P0-013
+    subject: Scan latency
+    action: histories complete at different times
+    expected: each history enters analysis immediately and first hit is emitted before all downloads finish
+    verification: tests/test_pipeline_performance.py::test_first_hit_arrives_before_all_fetches_finish
+  - id: P0-014
+    subject: Fetch throughput
+    action: first-run histories require network delay
+    expected: bounded parallel fetch is materially faster than the sequential delay floor
+    verification: tests/test_pipeline_performance.py::test_fetch_pool_reduces_first_run_wall_time
+  - id: P0-015
+    subject: Daily realtime eligibility
+    action: cached history exists
+    expected: current scan still requests the provider and requires a current-day response before analysis
+    verification: tests/test_scanner_db_app.py::test_cached_scan_still_fetches_current_market_data
+  - id: P0-016
+    subject: Realtime cache isolation
+    action: cached history exists but the current request fails or is stale
+    expected: cache cannot make the stock eligible for analysis
+    verification: tests/test_scanner_db_app.py::test_cached_history_does_not_bypass_current_scan_request
+  - id: P0-017
+    subject: Mixed realtime universe
+    action: only part of the universe returns today's valid bar
+    expected: only verified stocks are analyzed and stale count is reported
+    verification: tests/test_pipeline_performance.py::test_mixed_universe_analyzes_only_current_day_stocks
+  - id: P0-018
+    subject: Current-day price integrity
+    action: today's bar has a zero or invalid OHLC value
+    expected: reject before persistence and analysis
+    verification: tests/test_scanner_db_app.py::test_current_day_row_with_invalid_price_is_rejected
+  - id: P0-019
+    subject: Current candidate presentation
+    action: latest persisted scan contains previous-day results
+    expected: current views exclude them while history remains stored
+    verification: tests/test_scanner_db_app.py::test_current_candidate_view_excludes_previous_day_results
 global_hard_gates:
   - compile
   - pytest

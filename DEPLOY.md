@@ -55,6 +55,14 @@ http://你的服务器IP:8501
 
 如果云厂商有安全组/防火墙，需要放行 TCP `8501`。
 
+部署后检查服务和数据库健康状态：
+
+```bash
+curl --fail http://127.0.0.1:8501/healthz
+```
+
+对外部署前必须通过 systemd 环境或反向代理的密钥配置设置 `STOCK_HELPER_PASSWORD`，不要继续使用兼容默认密码。
+
 ## 3. 日常更新
 
 本地改完代码后推送：
@@ -108,4 +116,3 @@ sudo PORT=8600 bash scripts/deploy_ubuntu.sh
 sudo APP_DIR=/opt/stock-helper PORT=8501 bash scripts/deploy_ubuntu.sh
 sudo DB_PATH=/data/stock_helper.db bash scripts/deploy_ubuntu.sh
 ```
-

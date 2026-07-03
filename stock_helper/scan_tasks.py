@@ -14,21 +14,24 @@ class ScanTaskManager:
         self._task_id = 0
         self._cancel_event: threading.Event | None = None
         self._logs: list[str] = []
+        self._log_base_offset = 0
         self._progress: dict = {}
         self._live_hits: list[dict] = []
         self._live_offset = 0
         self._done = True
+        self._outcome = "idle"
 
     def start(self, config: StrategyConfig) -> int:
+        config.validate()
         with self._lock:
-            if self._cancel_event is not None and not self._done:
-                self._cancel_event.set()
-                self._append_locked("收到新参数，正在取消上一轮扫描")
+            if not self._done:
+                raise ScanInProgressError("已有扫描正在运行，请先停止或等待完成")
             self._task_id += 1
             task_id = self._task_id
             cancel_event = threading.Event()
             self._cancel_event = cancel_event
             self._logs = []
+            self._log_base_offset = 0
             self._live_hits = []
             self._live_offset = 0
             self._progress = {
@@ -39,6 +42,7 @@ class ScanTaskManager:
                 "current_name": "",
             }
             self._done = False
+            self._outcome = "running"
             self._append_locked(f"任务 #{task_id} 已启动")
             self._append_locked(f"最高股价：{config.max_price:g} 元")
 
@@ -46,12 +50,22 @@ class ScanTaskManager:
         thread.start()
         return task_id
 
+    def cancel(self) -> bool:
+        with self._lock:
+            if self._done or self._cancel_event is None:
+                return False
+            self._cancel_event.set()
+            self._append_locked("收到停止请求，正在安全结束扫描")
+            return True
+
     def snapshot(self, offset: int = 0, hit_offset: int = 0) -> tuple[int, list[str], bool, int, dict, list[dict], int]:
         with self._lock:
-            logs = self._logs[offset:]
+            relative_offset = max(0, offset - self._log_base_offset)
+            logs = self._logs[relative_offset:]
             hits = self._live_hits[hit_offset:]
             hit_off = len(self._live_hits)
-            return self._task_id, logs, self._done, len(self._logs), dict(self._progress), hits, hit_off
+            next_offset = self._log_base_offset + len(self._logs)
+            return self._task_id, logs, self._done, next_offset, dict(self._progress), hits, hit_off
 
     def status(self) -> dict:
         with self._lock:
@@ -60,11 +74,13 @@ class ScanTaskManager:
                 "logs": list(self._logs),
                 "progress": dict(self._progress),
                 "done": self._done,
+                "outcome": self._outcome,
                 "live_hits": list(self._live_hits),
             }
 
     def _run_task(self, task_id: int, config: StrategyConfig, cancel_event: threading.Event) -> None:
         scan_id = None
+        outcome = "failed"
         try:
             scan_id = db.create_scan(config)
             self._append_for(task_id, f"DB写入完成 (scan_id={scan_id})，开始连接数据源...")
@@ -75,20 +91,23 @@ class ScanTaskManager:
                 stop_event=cancel_event,
             )
         except ScanCancelled as exc:
+            outcome = "cancelled"
             if scan_id is not None:
                 db.finish_scan(scan_id, 0, "cancelled", str(exc))
             self._append_for(task_id, "上一轮扫描已取消")
         except Exception as exc:
+            outcome = "failed"
             if scan_id is not None:
                 db.finish_scan(scan_id, 0, "failed", str(exc))
             self._append_for(task_id, f"扫描失败：{exc}")
         else:
             if cancel_event.is_set():
+                outcome = "cancelled"
                 db.finish_scan(scan_id, 0, "cancelled", "扫描已取消")
                 self._append_for(task_id, "上一轮扫描已取消")
             else:
-                db.replace_candidates(scan_id, candidates)
-                db.finish_scan(scan_id, len(candidates))
+                db.complete_scan(scan_id, candidates)
+                outcome = "success"
                 self._append_for(task_id, f"结果已保存：{len(candidates)} 只候选股")
                 if candidates:
                     top = candidates[0]
@@ -97,6 +116,7 @@ class ScanTaskManager:
             with self._lock:
                 if task_id == self._task_id:
                     self._done = True
+                    self._outcome = outcome
 
     def append(self, message: str) -> None:
         with self._lock:
@@ -131,7 +151,13 @@ class ScanTaskManager:
         timestamp = datetime.now().strftime("%H:%M:%S")
         self._logs.append(f"[{timestamp}] {message}")
         if len(self._logs) > 1200:
-            self._logs = self._logs[-1200:]
+            overflow = len(self._logs) - 1200
+            self._logs = self._logs[overflow:]
+            self._log_base_offset += overflow
 
 
 scan_manager = ScanTaskManager()
+
+
+class ScanInProgressError(RuntimeError):
+    pass

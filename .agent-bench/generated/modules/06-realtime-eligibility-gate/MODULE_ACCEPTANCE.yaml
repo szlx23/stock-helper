@@ -1,0 +1,36 @@
+p0:
+  - id: RT-01
+    subject: cached stock
+    action: current scan cannot fetch market data
+    expected: cached history is not analyzed and cannot become a candidate
+    verification: scanner integration test
+  - id: RT-02
+    subject: provider response
+    action: contains history but no Asia/Shanghai current-day bar
+    expected: stock is skipped before analysis
+    verification: stale-response test
+  - id: RT-03
+    subject: provider response
+    action: contains an Asia/Shanghai current-day bar
+    expected: history is persisted and stock may enter analysis
+    verification: current-day response test
+  - id: RT-04
+    subject: mixed universe
+    action: only some stocks satisfy the realtime gate
+    expected: only verified stocks are analyzed and reported
+    verification: mixed-universe pipeline test
+  - id: RT-05
+    subject: user interface
+    action: scan progresses
+    expected: realtime-ineligible count is visible and clearly labeled
+    verification: progress contract and frontend syntax tests
+  - id: RT-06
+    subject: current candidate view
+    action: persisted results are from a previous Shanghai trading date
+    expected: keep them in storage but do not present them as current candidates
+    verification: current-date candidate query test
+  - id: RT-07
+    subject: quality gates
+    action: run project evaluation
+    expected: all updated tests pass
+    verification: bash .agent-bench/scripts/run_project_eval.sh

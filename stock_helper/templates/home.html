@@ -43,7 +43,7 @@
           {% if name != "max_price" %}
           <label class="field-card">
             <span>{{ label }}</span>
-            <input type="number" step="0.001" name="{{ name }}" value="{{ config|attr(name) }}" required>
+            <input type="number" step="{{ 1 if name in ['lookback_days', 'cache_refresh_days', 'stock_list_ttl_minutes', 'fetch_workers', 'max_workers', 'max_scan_count'] else 0.001 }}" name="{{ name }}" value="{{ config|attr(name) }}" required>
             {% if unit %}<small>{{ unit }}</small>{% else %}<small>{{ name }}</small>{% endif %}
           </label>
           {% endif %}
@@ -80,20 +80,28 @@
         <span style="font-size:12px;color:var(--muted)">
           {% if summary.data_date %}数据日期 {{ summary.data_date }}{% else %}暂无数据{% endif %}
         </span>
-        <div class="status-pill" data-task-status>{{ "运行中" if not task_status.done else (summary.scan.status if summary.scan else "待运行") }}</div>
+        <div class="status-pill" data-task-status data-outcome="{{ task_status.outcome }}">{{ "运行中" if not task_status.done else ({"success": "已完成", "failed": "运行失败", "cancelled": "已取消"}.get(task_status.outcome, "待运行")) }}</div>
       </div>
     </section>
 
     <section class="summary-grid">
-
-
-
-
+      <article class="stat-card">
+        <span class="label">候选数量</span>
+        <strong><span data-candidate-count>{{ summary.count }}</span> 只</strong>
+      </article>
+      <article class="stat-card">
+        <span class="label">当前最高分</span>
+        <strong data-top-candidate>{% if summary.top %}{{ summary.top.code }} {{ summary.top.name }}{% else %}暂无{% endif %}</strong>
+      </article>
+      <article class="stat-card">
+        <span class="label">行情数据日期</span>
+        <strong>{{ summary.data_date or "暂无数据" }}</strong>
+      </article>
     </section>
 
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
-      <input type="password" name="run_password" id="run-pwd" placeholder="运行密码" form="scan-form" autocomplete="off" style="width:100px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:0.85rem;background:var(--surface);color:var(--text)">
-      <button class="button primary" type="submit" form="scan-form" style="flex:1;cursor:pointer;position:relative;z-index:1">
+    <div class="run-row">
+      <input type="password" name="run_password" id="run-pwd" placeholder="运行密码" form="scan-form" autocomplete="current-password" aria-label="运行密码">
+      <button class="button primary" type="submit" form="scan-form">
         <span data-run-label>启动扫描</span>
       </button>
     </div>
@@ -191,8 +199,8 @@
   
     <div class="clear-row">
       <input type="password" id="clear-pwd" placeholder="密码清空">
-      <button class="button" id="clear-db-btn">清空数据库</button>
-      <span id="clear-msg" style="margin-left:6px"></span>
+      <button class="button" id="clear-db-btn" type="button">清空数据库</button>
+      <span id="clear-msg" class="clear-message" role="status" aria-live="polite"></span>
     </div>
 </main>
 </section>

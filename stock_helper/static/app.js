@@ -15,6 +15,8 @@ const currentStock = document.querySelector("[data-current-stock]");
 const hitCount = document.querySelector("[data-hit-count]");
 const streamState = document.querySelector("[data-stream-state]");
 const clearLogButton = document.querySelector("[data-clear-log]");
+const runButton = document.querySelector("button[form='scan-form']");
+const clearDbBtn = document.getElementById("clear-db-btn");
 let eventSource = null;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
@@ -40,14 +42,20 @@ if (!overlay) {
   document.body.appendChild(overlay);
 }
 function openSidebar() {
+  if (!sidebar) return;
   sidebar.classList.add("is-open");
   overlay.classList.add("is-open");
 }
 function closeSidebar() {
+  if (!sidebar) return;
   sidebar.classList.remove("is-open");
   overlay.classList.remove("is-open");
 }
 allSidebarToggles.forEach((btn) => {
+  if (!sidebar) {
+    btn.hidden = true;
+    return;
+  }
   btn.addEventListener("click", () => {
     if (window.innerWidth <= 768) {
       sidebar.classList.contains("is-open") ? closeSidebar() : openSidebar();
@@ -65,7 +73,7 @@ function parseLog(line) {
   const lower = message.toLowerCase();
   if (/失败|错误|异常|不可用|中断|超时/.test(message) || lower.includes("error")) return { time: match?.[1] || "--:--:--", message, tone: "error", label: "错误" };
   if (/命中|最高分|结果已保存|扫描完成|任务结束/.test(message)) return { time: match?.[1] || "--:--:--", message, tone: "done", label: "完成" };
-  if (/取消|跳过|重试|后备源/.test(message)) return { time: match?.[1] || "--:--:--", message, tone: "warning", label: "提示" };
+  if (/取消|跳过|重试|后备源|非实时|实时门槛/.test(message)) return { time: match?.[1] || "--:--:--", message, tone: "warning", label: "提示" };
   if (/阶段|进度|启动|连接数据源|股票列表/.test(message)) return { time: match?.[1] || "--:--:--", message, tone: "phase", label: "进度" };
   return { time: match?.[1] || "--:--:--", message, tone: "normal", label: "信息" };
 }
@@ -75,6 +83,7 @@ function appendLog(line, forcedTone = "") {
   const rawLine = String(line || "");
   if (seenLogLines.has(rawLine)) return;
   seenLogLines.add(rawLine);
+  const shouldFollow = logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight < 48;
   const placeholder = logBox.querySelector(".log-placeholder");
   if (placeholder) placeholder.remove();
   const parsed = parseLog(rawLine);
@@ -96,7 +105,7 @@ function appendLog(line, forcedTone = "") {
   row.append(time, kind, message);
   logBox.append(row);
   while (logBox.children.length > 500) logBox.firstElementChild.remove();
-  logBox.scrollTop = logBox.scrollHeight;
+  if (shouldFollow) logBox.scrollTop = logBox.scrollHeight;
 }
 
 function clearLog() {
@@ -110,13 +119,33 @@ function setStreamState(state, text) {
   streamState.lastChild.textContent = text;
 }
 
+function outcomeLabel(outcome) {
+  return { idle: "待运行", running: "运行中", success: "已完成", failed: "运行失败", cancelled: "已取消" }[outcome] || "状态未知";
+}
+
+function applyTaskState(outcome) {
+  scanIsRunning = outcome === "running";
+  if (taskStatus) {
+    taskStatus.textContent = outcomeLabel(outcome);
+    taskStatus.dataset.outcome = outcome || "idle";
+  }
+  if (runLabel) runLabel.textContent = scanIsRunning ? "停止扫描" : "启动扫描";
+  if (runButton) {
+    runButton.dataset.mode = scanIsRunning ? "stop" : "start";
+    if (!scanIsRunning) runButton.disabled = false;
+  }
+  if (clearDbBtn) {
+    clearDbBtn.disabled = scanIsRunning;
+    clearDbBtn.title = scanIsRunning ? "扫描运行中不能清空数据库" : "清空本地扫描数据";
+  }
+}
+
 function connectEvents() {
   if (eventSource) eventSource.close();
   if (reconnectTimer) window.clearTimeout(reconnectTimer);
   eventSource = new EventSource("/scan-events");
-  scanIsRunning = true;
+  applyTaskState("running");
   setStreamState("live", "实时连接");
-  if (taskStatus) taskStatus.textContent = "运行中";
   eventSource.onmessage = async (event) => {
     const payload = JSON.parse(event.data);
     if (payload.type === "hits") {
@@ -131,11 +160,9 @@ function connectEvents() {
     if (payload.done) {
       eventSource.close();
       eventSource = null;
-      if (runLabel) runLabel.textContent = "启动扫描";
-      if (taskStatus) taskStatus.textContent = "已完成";
-      scanIsRunning = false;
+      applyTaskState(payload.outcome || "success");
       reconnectAttempts = 0;
-      setStreamState("", "已结束");
+      setStreamState(payload.outcome === "failed" ? "error" : "", outcomeLabel(payload.outcome));
       await refreshStatus();
     }
   };
@@ -152,19 +179,24 @@ function connectEvents() {
 }
 
 async function refreshStatus() {
-  const response = await fetch("/scan-status", { headers: { Accept: "application/json" } });
-  if (!response.ok) return;
-  const payload = await response.json();
-  scanIsRunning = !payload.done;
-  renderSummary(payload.summary);
-  renderResults(payload.candidates || []);
-  renderProgress(payload.progress);
-  if (payload.logs && payload.logs.length && logBox && !logBox.querySelector(".log-line")) {
-    clearLog();
-    payload.logs.forEach((line) => appendLog(line));
+  try {
+    const response = await fetch("/scan-status", { headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    applyTaskState(payload.outcome || (payload.done ? "idle" : "running"));
+    renderSummary(payload.summary);
+    renderResults(payload.candidates || []);
+    renderProgress(payload.progress);
+    if (payload.logs && payload.logs.length && logBox && !logBox.querySelector(".log-line")) {
+      clearLog();
+      payload.logs.forEach((line) => appendLog(line));
+    }
+    if (scanIsRunning && !eventSource) connectEvents();
+    if (!scanIsRunning && !eventSource) setStreamState("", outcomeLabel(payload.outcome));
+  } catch (error) {
+    setStreamState("error", "状态获取失败");
+    appendLog(`状态同步失败：${error.message}`, "error");
   }
-  if (scanIsRunning && !eventSource) connectEvents();
-  if (!scanIsRunning && !eventSource) setStreamState("", "等待连接");
 }
 
 function renderProgress(progress) {
@@ -172,15 +204,22 @@ function renderProgress(progress) {
   const completed = Number(progress.completed || 0);
   const total = Number(progress.total || 0);
   const hits = Number(progress.hits || 0);
-  const phase = progress.phase === "data" ? "拉取数据" : progress.phase === "analysis" ? "并行分析" : "等待";
+  const phase = progress.phase === "pipeline" ? "流水线处理" : progress.phase === "data" ? "拉取数据" : progress.phase === "analysis" ? "并行分析" : "等待";
   const percent = total > 0 ? Math.min(100, Math.max(0, (completed / total) * 100)) : 0;
-  if (progressTitle) progressTitle.textContent = `${phase} ${completed}/${total}`;
+  if (progressTitle) {
+    if (progress.phase === "pipeline") {
+      progressTitle.textContent = `拉取 ${Number(progress.fetched || 0)}/${total} · 分析 ${Number(progress.analyzed || 0)} · 非实时 ${Number(progress.realtime_skipped || 0)}`;
+    } else {
+      progressTitle.textContent = `${phase} ${completed}/${total}`;
+    }
+  }
   if (progressFill) progressFill.style.width = `${percent}%`;
   if (hitCount) hitCount.textContent = `命中 ${hits}`;
   if (currentStock) {
     const code = progress.current_code || "";
     const name = progress.current_name || "";
-    currentStock.textContent = code ? `当前${phase}：${code} ${name}` : "当前：等待启动";
+    const action = progress.current_action === "fetch" ? "拉取完成" : progress.current_action === "analysis" ? "分析完成" : phase;
+    currentStock.textContent = code ? `${action}：${code} ${name}` : "当前：等待启动";
   }
 }
 
@@ -266,19 +305,42 @@ function escapeHtml(value) {
 
 if (scanForm) {
   const doScan = async () => {
+    if (runButton?.disabled) return;
+    const runPwd = document.getElementById("run-pwd");
+    if (scanIsRunning) {
+      if (runButton) runButton.disabled = true;
+      if (runLabel) runLabel.textContent = "正在停止…";
+      try {
+        const response = await fetch("/cancel-scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ password: runPwd?.value || "" }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        appendLog("已提交停止请求，当前股票处理完成后将安全退出。", "warning");
+      } catch (error) {
+        appendLog(`停止失败：${error.message}`, "error");
+        if (runButton) runButton.disabled = false;
+        if (runLabel) runLabel.textContent = "停止扫描";
+      }
+      return;
+    }
     if (eventSource) {
       eventSource.close();
       eventSource = null;
     }
     clearLog();
     liveHits = [];
+    renderLiveHits();
+    renderSummary({ count: 0, top: null });
     appendLog("提交参数，准备启动扫描...");
-    if (runLabel) runLabel.textContent = "重新运行";
+    if (runButton) runButton.disabled = true;
+    if (runLabel) runLabel.textContent = "正在启动…";
     if (taskStatus) taskStatus.textContent = "启动中";
 
     try {
       const formData = new FormData(scanForm);
-      const runPwd = document.getElementById("run-pwd");
       if (runPwd) formData.set("run_password", runPwd.value);
       const response = await fetch(scanForm.action, {
         method: "POST",
@@ -292,11 +354,13 @@ if (scanForm) {
       const payload = await response.json();
       if (!payload.ok) throw new Error(payload.error);
       appendLog(`任务 #${payload.task_id} 已接管当前扫描通道。`);
+      if (runButton) runButton.disabled = false;
       connectEvents();
     } catch (error) {
       appendLog(`启动失败：${error.message}`, "error");
       if (runLabel) runLabel.textContent = "启动扫描";
       if (taskStatus) taskStatus.textContent = "启动失败";
+      if (runButton) runButton.disabled = false;
     }
   };
 
@@ -327,7 +391,6 @@ refreshStatus();
 
 if (clearLogButton) clearLogButton.addEventListener("click", clearLog);
 
-const clearDbBtn = document.getElementById("clear-db-btn");
 const clearPwd = document.getElementById("clear-pwd");
 const clearMsg = document.getElementById("clear-msg");
 if (clearDbBtn) {
@@ -336,13 +399,19 @@ if (clearDbBtn) {
     const pwd = clearPwd.value;
     if (!pwd) { clearMsg.textContent = "请输入密码"; return; }
     clearMsg.textContent = "处理中...";
+    clearDbBtn.disabled = true;
     try {
       const r = await fetch("/clear-db", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({password: pwd}) });
       const j = await r.json();
       clearMsg.textContent = j.ok ? "已清空 \u2713" : (j.error || "失败");
-      if (j.ok) clearPwd.value = "";
+      if (j.ok) {
+        clearPwd.value = "";
+        await refreshStatus();
+      }
     } catch(e) {
       clearMsg.textContent = "请求失败";
+    } finally {
+      clearDbBtn.disabled = scanIsRunning;
     }
   });
 }

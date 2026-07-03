@@ -1,0 +1,31 @@
+p0:
+  - id: SP-01
+    subject: scan pipeline
+    action: first stock history becomes available while later fetches remain pending
+    expected: its analysis starts and can emit a hit before all fetches finish
+    verification: event-order concurrency test
+  - id: SP-02
+    subject: market-data fetching
+    action: multiple stocks require remote history
+    expected: uses a bounded configurable fetch pool and demonstrates lower wall time than sequential fetching in a deterministic benchmark
+    verification: timing test with controlled provider delays
+  - id: SP-03
+    subject: final candidates
+    action: pipeline completes
+    expected: matches strategy evaluation semantics and remains sorted by score descending
+    verification: scanner integration tests
+  - id: SP-04
+    subject: cancellation
+    action: stop is requested during fetch or analysis
+    expected: pending work is cancelled and no successful result is persisted
+    verification: cancellation regression test
+  - id: SP-05
+    subject: progress feedback
+    action: fetch and analysis overlap
+    expected: exposes fetched, analyzed, skipped, total, and hit counters without regressing
+    verification: progress contract test
+  - id: SP-06
+    subject: quality gates
+    action: run project evaluation
+    expected: all existing and performance tests pass
+    verification: bash .agent-bench/scripts/run_project_eval.sh

@@ -12,17 +12,13 @@ class StrategyResult:
 
 
 def evaluate_stock(code: str, name: str, rows: list[dict], config: StrategyConfig) -> StrategyResult:
-    try:
-        if not rows:
-            return StrategyResult(False, 0, [], ["无行情数据"])
-        latest = rows[-1]
-        hard_rejects = hard_filter(code, name, rows, config)
-        if hard_rejects:
-            return StrategyResult(False, 0, [], hard_rejects)
-        score, reasons, risks = score_stock(rows, config)
-        return StrategyResult(True, score, reasons, risks)
-    except Exception:
-        return StrategyResult(False, 0, [], ["评估异常"])
+    if not rows:
+        return StrategyResult(False, 0, [], ["无行情数据"])
+    hard_rejects = hard_filter(code, name, rows, config)
+    if hard_rejects:
+        return StrategyResult(False, 0, [], hard_rejects)
+    score, reasons, risks = score_stock(rows, config)
+    return StrategyResult(True, score, reasons, risks)
 
 
 def hard_filter(code: str, name: str, rows: list[dict], config: StrategyConfig) -> list[str]:

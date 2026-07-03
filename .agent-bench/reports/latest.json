@@ -3,11 +3,14 @@
   "completed_modules": [
     "01-scan-config-strategy",
     "02-web-scan-candidates",
-    "03-review-hardening"
+    "03-review-hardening",
+    "04-production-hardening",
+    "05-scan-pipeline-performance",
+    "06-realtime-eligibility-gate"
   ],
   "global_hard_gate_results": {
     "compile": "pass",
-    "pytest": "pass (17)",
+    "pytest": "pass (52)",
     "javascript_syntax": "pass",
     "shell_syntax": "pass"
   },

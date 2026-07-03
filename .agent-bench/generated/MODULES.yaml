@@ -17,3 +17,21 @@ modules:
     dependencies: [01-scan-config-strategy, 02-web-scan-candidates]
     status: complete
     path: .agent-bench/generated/modules/01-review-hardening
+  - id: 04-production-hardening
+    name: Production-grade consistency and interaction hardening
+    priority: P0
+    dependencies: [03-review-hardening]
+    status: complete
+    path: .agent-bench/generated/modules/04-production-hardening
+  - id: 05-scan-pipeline-performance
+    name: Concurrent fetch and streaming analysis pipeline
+    priority: P0
+    dependencies: [04-production-hardening]
+    status: complete
+    path: .agent-bench/generated/modules/05-scan-pipeline-performance
+  - id: 06-realtime-eligibility-gate
+    name: Same-scan current-day market data eligibility gate
+    priority: P0
+    dependencies: [05-scan-pipeline-performance]
+    status: complete
+    path: .agent-bench/generated/modules/06-realtime-eligibility-gate

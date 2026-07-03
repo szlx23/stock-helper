@@ -1,0 +1,16 @@
+{
+  "module": "05-scan-pipeline-performance",
+  "status": "pass",
+  "p0_passed": 6,
+  "p0_total": 6,
+  "test_count": 48,
+  "benchmark": {
+    "stocks": 8,
+    "delay_per_fetch_seconds": 0.05,
+    "staged_first_hit_floor_seconds": 0.4,
+    "pipeline_first_hit_seconds": 0.074,
+    "pipeline_total_seconds": 0.171,
+    "observed_fetch_concurrency": 4
+  },
+  "next_decision": "continue_to_next_module"
+}

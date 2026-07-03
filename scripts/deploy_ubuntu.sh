@@ -65,6 +65,11 @@ Environment=STOCK_HELPER_DB=${DB_PATH}
 ExecStart=${APP_DIR}/.venv/bin/uvicorn stock_helper.app:app --host ${HOST} --port ${PORT}
 Restart=always
 RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=${DB_DIR}
 
 [Install]
 WantedBy=multi-user.target
@@ -80,4 +85,5 @@ echo "Service status:"
 systemctl --no-pager --full status "${SERVICE_NAME}" || true
 echo
 echo "Open: http://SERVER_IP:${PORT}"
+echo "Health: http://SERVER_IP:${PORT}/healthz"
 echo "Logs: sudo journalctl -u ${SERVICE_NAME} -f"

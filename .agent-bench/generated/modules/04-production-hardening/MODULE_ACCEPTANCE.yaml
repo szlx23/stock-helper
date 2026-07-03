@@ -1,0 +1,31 @@
+p0:
+  - id: PH-01
+    subject: strategy configuration
+    action: receives NaN, infinity, or an out-of-range operational value
+    expected: rejects it before a scan starts
+    verification: automated config and endpoint tests
+  - id: PH-02
+    subject: successful scan persistence
+    action: stores candidates and marks the scan successful
+    expected: both changes commit atomically in one transaction
+    verification: database integration test
+  - id: PH-03
+    subject: database clearing
+    action: is requested while a scan is active
+    expected: returns HTTP 409 and preserves scan data
+    verification: endpoint integration test
+  - id: PH-04
+    subject: scan terminal state
+    action: succeeds, fails, or is cancelled
+    expected: API and frontend expose the correct distinct outcome
+    verification: manager tests and frontend contract assertions
+  - id: PH-05
+    subject: limited universe selection
+    action: stock count exceeds max_scan_count
+    expected: selection is stable and reproducible
+    verification: scanner unit test
+  - id: PH-06
+    subject: project quality gates
+    action: run compile, tests, JavaScript syntax, diff, and shell checks
+    expected: all commands exit successfully
+    verification: project evaluation script

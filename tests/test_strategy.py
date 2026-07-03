@@ -73,3 +73,7 @@ def test_chinext_stock_can_be_excluded():
 
     assert not result.passed
     assert any("创业板" in risk for risk in result.risks)
+
+
+def test_default_scan_limit_covers_full_a_share_market():
+    assert StrategyConfig().max_scan_count == 10000

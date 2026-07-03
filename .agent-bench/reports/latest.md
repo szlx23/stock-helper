@@ -9,6 +9,9 @@ Pass. All project P0 acceptance criteria and hard gates are verified.
 - 01-scan-config-strategy
 - 02-web-scan-candidates
 - 03-review-hardening
+- 04-production-hardening
+- 05-scan-pipeline-performance
+- 06-realtime-eligibility-gate
 
 ## Incomplete Modules
 
@@ -17,14 +20,14 @@ None known for MVP.
 ## Global Hard Gate Results
 
 - `python -m compileall -q stock_helper tests`: pass.
-- `.venv/bin/pytest -q`: pass, 17 tests passed.
+- `.venv/bin/pytest -q`: pass, 52 tests passed.
 - `node --check stock_helper/static/app.js`: pass.
 - `git diff --check`: pass.
 - `bash -n scripts/*.sh .agent-bench/scripts/*.sh`: pass.
 
 ## P0 Project Acceptance Pass Rate
 
-100% (8/8).
+100% (19/19).
 
 ## Known Assumptions
 
@@ -34,6 +37,8 @@ See `.agent-bench/generated/ASSUMPTIONS.md`.
 
 - Market scanning depends on network and third-party service availability.
 - Live provider behavior is not part of the deterministic test gate.
+- Live provider throughput varies with upstream rate limits; lower `fetch_workers` if throttling appears.
+- A stock is never analyzed from cache alone; the current scan must receive today's valid Asia/Shanghai daily bar.
 - The legacy operation password remains the compatibility fallback; deployments should set `STOCK_HELPER_PASSWORD`.
 - Buy/sell records, next-day sell plan, and review statistics remain outside MVP scope.
 

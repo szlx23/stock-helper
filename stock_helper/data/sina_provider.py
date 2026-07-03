@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 
-from stock_helper.data import StockInfo
+from stock_helper.data import StockInfo, normalize_a_share_code
 
 
 class SinaProvider:
@@ -30,7 +30,7 @@ class SinaProvider:
         df = ak.stock_info_a_code_name()
         stocks = []
         for _, row in df.iterrows():
-            code = _normalize_code(str(row["code"]))
+            code = normalize_a_share_code(str(row["code"]))
             if code:
                 stocks.append(StockInfo(code=code, name=str(row["name"])))
         return stocks
@@ -56,18 +56,6 @@ class SinaProvider:
                 "turn": _f(row.get("turnover") or row.get("turn", 0)),
             })
         return rows
-
-
-def _normalize_code(raw: str) -> str | None:
-    raw = raw.strip()
-    if len(raw) < 6:
-        return None
-    num = raw[-6:]
-    if not num.isdigit():
-        return None
-    if raw.startswith(("6", "5", "9")):
-        return f"sh.{num}"
-    return f"sz.{num}"
 
 
 def _f(val) -> float:

@@ -18,8 +18,10 @@ def get_db_path() -> Path:
 def connect(db_path: Path | None = None):
     path = db_path or get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
     try:
         yield conn
         conn.commit()
@@ -29,6 +31,7 @@ def connect(db_path: Path | None = None):
 
 def init_db(db_path: Path | None = None) -> None:
     with connect(db_path) as conn:
+        conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS scan_tasks (
@@ -106,10 +109,51 @@ def finish_scan(scan_id: int, hit_count: int, status: str = "success", error_mes
         )
 
 
+def fail_running_scans(message: str = "服务重启，原扫描任务已中断") -> int:
+    with connect() as conn:
+        cursor = conn.execute(
+            "UPDATE scan_tasks SET status = 'failed', error_message = ? WHERE status = 'running'",
+            (message,),
+        )
+        return cursor.rowcount
+
+
+def health_check() -> bool:
+    try:
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'scan_tasks'"
+            ).fetchone()
+        return bool(row and row["count"] == 1)
+    except sqlite3.Error:
+        return False
+
+
 def replace_candidates(scan_id: int, candidates: list[dict]) -> None:
     with connect() as conn:
-        conn.execute("DELETE FROM candidates WHERE scan_id = ?", (scan_id,))
-        conn.executemany(
+        _replace_candidates(conn, scan_id, candidates)
+
+
+def complete_scan(scan_id: int, candidates: list[dict]) -> None:
+    """Persist results and terminal success state in one transaction."""
+    with connect() as conn:
+        _replace_candidates(conn, scan_id, candidates)
+        conn.execute(
+            "UPDATE scan_tasks SET hit_count = ?, status = 'success', error_message = NULL WHERE id = ?",
+            (len(candidates), scan_id),
+        )
+
+
+def clear_all() -> None:
+    with connect() as conn:
+        for table in ("candidates", "stock_daily_bars", "stock_info_cache", "scan_tasks"):
+            conn.execute(f"DELETE FROM {table}")
+        conn.execute("DELETE FROM sqlite_sequence")
+
+
+def _replace_candidates(conn: sqlite3.Connection, scan_id: int, candidates: list[dict]) -> None:
+    conn.execute("DELETE FROM candidates WHERE scan_id = ?", (scan_id,))
+    conn.executemany(
             """
             INSERT INTO candidates (
                 scan_id, code, name, trade_date, close, pct_chg, ma5, ma10, ma20, ma30,
@@ -137,7 +181,7 @@ def replace_candidates(scan_id: int, candidates: list[dict]) -> None:
                 )
                 for item in candidates
             ],
-        )
+    )
 
 
 def latest_scan() -> sqlite3.Row | None:
@@ -145,19 +189,27 @@ def latest_scan() -> sqlite3.Row | None:
         return conn.execute("SELECT * FROM scan_tasks ORDER BY id DESC LIMIT 1").fetchone()
 
 
-def latest_candidates() -> list[dict]:
-    scan = latest_scan()
-    if not scan:
+def latest_candidates(scan_id: int | None = None, trade_date: str | None = None) -> list[dict]:
+    if scan_id is None:
+        scan = latest_scan()
+        scan_id = scan["id"] if scan else None
+    if scan_id is None:
         return []
-    return scan_candidates(scan["id"])
+    return scan_candidates(scan_id, trade_date=trade_date)
 
 
-def scan_candidates(scan_id: int) -> list[dict]:
+def scan_candidates(scan_id: int, trade_date: str | None = None) -> list[dict]:
     with connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM candidates WHERE scan_id = ? ORDER BY score DESC, close ASC",
-            (scan_id,),
-        ).fetchall()
+        if trade_date is None:
+            rows = conn.execute(
+                "SELECT * FROM candidates WHERE scan_id = ? ORDER BY score DESC, close ASC",
+                (scan_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM candidates WHERE scan_id = ? AND trade_date = ? ORDER BY score DESC, close ASC",
+                (scan_id, trade_date),
+            ).fetchall()
     return [_decode_candidate(row) for row in rows]
 
 
@@ -167,9 +219,9 @@ def latest_data_date() -> str | None:
     return row["d"] if row else None
 
 
-def latest_summary() -> dict:
+def latest_summary(candidate_date: str | None = None) -> dict:
     scan = latest_scan()
-    candidates = latest_candidates() if scan else []
+    candidates = latest_candidates(scan["id"], trade_date=candidate_date) if scan else []
     params = json.loads(scan["params_json"]) if scan else {}
     return {
         "scan": scan,
@@ -181,10 +233,15 @@ def latest_summary() -> dict:
 
 
 def get_cached_bars(code: str, limit: int) -> list[dict]:
+    bars, _ = get_cached_bars_state(code, limit)
+    return bars
+
+
+def get_cached_bars_state(code: str, limit: int) -> tuple[list[dict], str | None]:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT trade_date AS date, open, high, low, close, volume, turn
+            SELECT trade_date AS date, open, high, low, close, volume, turn, updated_at
             FROM stock_daily_bars
             WHERE code = ?
             ORDER BY trade_date DESC
@@ -192,7 +249,13 @@ def get_cached_bars(code: str, limit: int) -> list[dict]:
             """,
             (code, limit),
         ).fetchall()
-    return [dict(row) for row in reversed(rows)]
+    updated_at = max((row["updated_at"] for row in rows), default=None)
+    bars = []
+    for row in reversed(rows):
+        item = dict(row)
+        item.pop("updated_at", None)
+        bars.append(item)
+    return bars, updated_at
 
 
 def latest_cached_bar_date(code: str) -> str | None:
@@ -257,19 +320,25 @@ def upsert_stock_list(stocks) -> int:
 
 
 def cached_stock_list() -> list:
+    stocks, _ = cached_stock_list_state()
+    return stocks
+
+
+def cached_stock_list_state() -> tuple[list, str | None]:
     from stock_helper.data import StockInfo
 
     with connect() as conn:
-        rows = conn.execute("SELECT code, name FROM stock_info_cache ORDER BY code").fetchall()
+        rows = conn.execute("SELECT code, name, updated_at FROM stock_info_cache ORDER BY code").fetchall()
     if rows:
-        return [StockInfo(code=row["code"], name=row["name"]) for row in rows]
+        updated_at = max(row["updated_at"] for row in rows)
+        return [StockInfo(code=row["code"], name=row["name"]) for row in rows], updated_at
 
     # fallback: 从 stock_daily_bars 中提取已有代码
     with connect() as conn:
         rows = conn.execute(
             "SELECT DISTINCT code FROM stock_daily_bars ORDER BY code"
         ).fetchall()
-    return [StockInfo(code=row["code"], name=row["code"]) for row in rows]
+    return [StockInfo(code=row["code"], name=row["code"]) for row in rows], None
 
 
 def _decode_candidate(row: sqlite3.Row) -> dict:
