@@ -230,3 +230,33 @@ def test_missing_realtime_snapshot_falls_back_to_history_pull(tmp_path, monkeypa
     assert candidates
     assert final["latest_bar"]["date"] == _market_today().isoformat()
     assert final["latest_source"] == "历史回补"
+
+
+def test_realtime_snapshot_error_falls_back_to_history_pull(tmp_path, monkeypatch):
+    monkeypatch.setenv("STOCK_HELPER_DB", str(tmp_path / "snapshot-error.db"))
+    db.init_db()
+
+    class SnapshotFallbackProvider(DelayedProvider):
+        SOURCE_NAME = "SnapshotFallback"
+
+        def get_history_range(self, code, start_date, end_date):
+            rows = make_rows()
+            rows[-1]["date"] = _market_today().isoformat()
+            return rows
+
+    SnapshotFallbackProvider.stocks = [StockInfo("sh.600000", "示例0")]
+
+    def provider_factory(log=None):
+        return MultiProvider([SnapshotFallbackProvider], log=log)
+
+    def failed_snapshot(log=None):
+        raise RuntimeError("snapshot endpoint timeout")
+
+    logs = []
+    candidates = StockScanner(
+        provider_factory=provider_factory,
+        snapshot_loader=failed_snapshot,
+    ).run(StrategyConfig(fetch_workers=1, max_workers=1), log=logs.append)
+
+    assert candidates
+    assert any("切换逐股历史源" in line for line in logs)

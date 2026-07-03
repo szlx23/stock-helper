@@ -69,11 +69,18 @@ class StockScanner:
             stocks = _limit_stocks(stocks, config.max_scan_count)
             _log(log, f"按代码稳定截取前 {config.max_scan_count} 只进行分析")
 
-        snapshots = self._snapshot_loader(log=log)
+        try:
+            snapshots = self._snapshot_loader(log=log)
+        except Exception as exc:
+            # The bulk snapshot is an optimization, not a single point of
+            # failure. Per-stock history providers still have a chance to
+            # return today's latest bar and will apply their own fallback.
+            snapshots = {}
+            _log(log, f"实时快照不可用，切换逐股历史源拉取当日数据：{exc}")
 
         _log(log, f"流水线启动：{config.fetch_workers} 路拉取，{config.max_workers} 路分析（列表：{source}）")
         _log(log, f"实时硬门槛：仅分析本轮成功拉取且包含 {_market_today().isoformat()} 有效日线的股票")
-        _log(log, "缺失实时快照时将自动回退历史接口补齐当天数据")
+        _log(log, "拉取规则：有本地数据则增量更新；无本地数据拉取完整回看区间；仅当日数据进入分析")
         _log(log, f"K线策略：保留 {config.lookback_days} 日，增量补缺至当日")
         return self._run_pipeline(stocks, config, snapshots, log, progress, stop_event)
 
