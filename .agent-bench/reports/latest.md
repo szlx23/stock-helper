@@ -20,14 +20,14 @@ None known for MVP.
 ## Global Hard Gate Results
 
 - `python -m compileall -q stock_helper tests`: pass.
-- `.venv/bin/pytest -q`: pass, 52 tests passed.
+- `.venv/bin/pytest -q`: pass, 57 tests passed.
 - `node --check stock_helper/static/app.js`: pass.
 - `git diff --check`: pass.
 - `bash -n scripts/*.sh .agent-bench/scripts/*.sh`: pass.
 
 ## P0 Project Acceptance Pass Rate
 
-100% (19/19).
+100% (21/21).
 
 ## Known Assumptions
 

@@ -7,12 +7,12 @@
 ## Summary
 
 * Status: pass
-* P0 pass rate: 7/7 (100%)
-* Test suite: 52 passed
+* P0 pass rate: 9/9 (100%)
+* Test suite: 57 passed
 
 ## Passed Checks
 
-Same-scan provider request requirement, Asia/Shanghai current-day verification, OHLC validity, persistence recheck, analysis-time defense-in-depth, cached-history isolation, mixed-universe filtering, realtime skip progress, all-stale failure behavior, previous-day candidate hiding, and full project quality gates.
+Same-scan bulk snapshot requirement, Asia/Shanghai quote timestamp freshness, intraday OHLC construction, concurrent snapshot pagination, OHLC validity, persistence recheck, analysis-time defense-in-depth, cached-history isolation, mixed-universe filtering, realtime skip progress, all-stale failure behavior, previous-day candidate hiding, and full project quality gates.
 
 ## Failed Checks
 
@@ -24,11 +24,11 @@ Removed the K-line TTL bypass, introduced a strict realtime eligibility exceptio
 
 ## Assumptions Used
 
-“Realtime to this moment” means a new request made during the current scan whose daily response contains a valid bar dated today in Asia/Shanghai. The upstream daily API does not expose an exchange timestamp for every update, so freshness cannot be proven more precisely than the current request plus current-day bar.
+“Realtime to this moment” is verified from the current scan's Eastmoney snapshot timestamp. During active sessions, quotes older than five minutes are rejected; lunch break and after close accept the latest same-day quote.
 
 ## Acceptance or Test Changes
 
-The previous cache-only fast path was intentionally removed because it conflicts with the new hard product requirement. Historical cache remains only for the indicator lookback window.
+The previous cache-only fast path was intentionally removed because it conflicts with the new hard product requirement. Historical cache remains only for the indicator lookback window. After live diagnosis showed Tencent/Sina history stops at the previous completed day intraday, acceptance was refined to require a timestamped realtime snapshot and synthesized current-day bar.
 
 ## Next Decision
 

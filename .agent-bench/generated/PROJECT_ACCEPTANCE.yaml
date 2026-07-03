@@ -94,6 +94,16 @@ p0:
     action: latest persisted scan contains previous-day results
     expected: current views exclude them while history remains stored
     verification: tests/test_scanner_db_app.py::test_current_candidate_view_excludes_previous_day_results
+  - id: P0-020
+    subject: Intraday snapshot freshness
+    action: market is in an active session
+    expected: quote timestamp is today and no more than five minutes old
+    verification: tests/test_realtime_provider.py::test_quote_freshness_during_trading_session
+  - id: P0-021
+    subject: Realtime snapshot throughput
+    action: upstream forces the A-share universe into pages
+    expected: remaining pages are fetched concurrently and mapped by normalized code
+    verification: tests/test_realtime_provider.py::test_bulk_snapshot_fetches_remaining_pages_concurrently
 global_hard_gates:
   - compile
   - pytest

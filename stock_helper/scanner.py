@@ -7,6 +7,7 @@ from stock_helper import db
 from stock_helper.config import StrategyConfig
 from stock_helper.data import StockInfo
 from stock_helper.data.multi_provider import make_multi_provider
+from stock_helper.data.realtime_provider import load_realtime_snapshot
 
 from stock_helper.indicators import enrich_history
 from stock_helper.strategy import evaluate_stock
@@ -50,8 +51,9 @@ class _ThreadLocalProviderPool:
 
 
 class StockScanner:
-    def __init__(self, provider_factory=make_multi_provider) -> None:
+    def __init__(self, provider_factory=make_multi_provider, snapshot_loader=load_realtime_snapshot) -> None:
         self._provider_factory = provider_factory
+        self._snapshot_loader = snapshot_loader
 
     def run(self, config: StrategyConfig, log=None, progress=None, stop_event=None) -> list[dict]:
         config.validate()
@@ -62,10 +64,12 @@ class StockScanner:
             stocks = _limit_stocks(stocks, config.max_scan_count)
             _log(log, f"按代码稳定截取前 {config.max_scan_count} 只进行分析")
 
+        snapshots = self._snapshot_loader(log=log)
+
         _log(log, f"流水线启动：{config.fetch_workers} 路拉取，{config.max_workers} 路分析（列表：{source}）")
         _log(log, f"实时硬门槛：仅分析本轮成功拉取且包含 {_market_today().isoformat()} 有效日线的股票")
         _log(log, f"K线策略：保留 {config.lookback_days} 日，增量补缺至当日")
-        return self._run_pipeline(stocks, config, log, progress, stop_event)
+        return self._run_pipeline(stocks, config, snapshots, log, progress, stop_event)
 
     def _load_stock_universe(self, config: StrategyConfig, log=None) -> tuple[list[StockInfo], str]:
         cached, updated_at = db.cached_stock_list_state()
@@ -98,7 +102,7 @@ class StockScanner:
             if provider is not None:
                 provider.__exit__(None, None, None)
 
-    def _run_pipeline(self, stocks, config, log=None, progress=None, stop_event=None) -> list[dict]:
+    def _run_pipeline(self, stocks, config, snapshots, log=None, progress=None, stop_event=None) -> list[dict]:
         total = len(stocks)
         if total == 0:
             _log(log, "扫描完成：预过滤后没有需要分析的股票")
@@ -120,7 +124,9 @@ class StockScanner:
                 stock = next(stock_iter, None)
                 if stock is None:
                     break
-                future = fetch_executor.submit(self._fetch_one, stock, config, provider_pool, stop_event)
+                future = fetch_executor.submit(
+                    self._fetch_one, stock, config, provider_pool, snapshots.get(stock.code), stop_event
+                )
                 fetch_pending[future] = stock
 
         def emit_progress(stock: StockInfo | None = None, action: str = "") -> None:
@@ -211,17 +217,21 @@ class StockScanner:
         return passed
 
     @staticmethod
-    def _fetch_one(stock, config, provider_pool, stop_event=None):
+    def _fetch_one(stock, config, provider_pool, realtime_row, stop_event=None):
         if stop_event is not None and stop_event.is_set():
             raise ScanCancelled("扫描已取消")
         cached, _ = db.get_cached_bars_state(stock.code, config.lookback_days)
         bars_before = len(cached)
+        if realtime_row is None:
+            return [], bars_before, False
         try:
+            provider = None if bars_before >= 35 else provider_pool.get()
             history = ensure_history_cached(
                 stock.code,
                 config,
-                provider_pool.get(),
+                provider,
                 cached=cached,
+                realtime_row=realtime_row,
             )
         except RealtimeDataUnavailable:
             return [], bars_before, False
@@ -340,10 +350,11 @@ def ensure_history_cached(
     provider=None,
     *,
     cached: list[dict] | None = None,
+    realtime_row: dict | None = None,
 ) -> list[dict]:
     if cached is None:
         cached, _ = db.get_cached_bars_state(code, config.lookback_days)
-    if provider is None:
+    if provider is None and not cached:
         raise RuntimeError("数据源不可用，无法获取实时K线数据")
 
     end = _market_today()
@@ -354,13 +365,18 @@ def ensure_history_cached(
     else:
         start = end - timedelta(days=max(config.lookback_days * 2, 260))
 
-    try:
-        rows = provider.get_history_range(code, start.isoformat(), end.isoformat())
-    except Exception as exc:
-        raise RealtimeDataUnavailable(f"{code} 本轮行情请求失败：{exc}") from exc
     today = _market_today().isoformat()
+    rows = []
+    if provider is not None:
+        try:
+            rows = provider.get_history_range(code, start.isoformat(), end.isoformat())
+        except Exception as exc:
+            if not cached:
+                raise RealtimeDataUnavailable(f"{code} 历史行情请求失败且无缓存：{exc}") from exc
+    if realtime_row is not None:
+        rows = [*rows, realtime_row]
     if not any(_is_valid_current_row(row, today) for row in rows):
-        raise RealtimeDataUnavailable(f"{code} 行情未更新到 {today} 或当日价格无效")
+        raise RealtimeDataUnavailable(f"{code} 实时快照未更新到 {today} 或当日价格无效")
     rows_to_store = [
         row for row in rows
         if str(row.get("date", ""))[:10] != today or _is_valid_current_row(row, today)

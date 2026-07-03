@@ -59,7 +59,23 @@ def _make_scanner():
     """Create a StockScanner patched to use FakeProvider."""
     def fake_provider_factory(log=None):
         return MultiProvider([FakeProvider], log=log)
-    return StockScanner(provider_factory=fake_provider_factory)
+    return StockScanner(
+        provider_factory=fake_provider_factory,
+        snapshot_loader=lambda log=None: {"sh.600000": _current_bar()},
+    )
+
+
+def _current_bar() -> dict:
+    row = make_rows()[-1]
+    return {
+        "date": _market_today().isoformat(),
+        "open": row["open"],
+        "high": row["high"],
+        "low": row["low"],
+        "close": row["close"],
+        "volume": row["volume"],
+        "turn": row["turn"],
+    }
 
 
 def test_scanner_returns_candidates(tmp_path, monkeypatch):
@@ -323,7 +339,7 @@ def test_cached_history_does_not_bypass_current_scan_request(tmp_path, monkeypat
         def get_history_range(self, code, start_date, end_date):
             raise RuntimeError("network unavailable")
 
-    with pytest.raises(RealtimeDataUnavailable, match="本轮行情请求失败"):
+    with pytest.raises(RealtimeDataUnavailable, match="实时快照未更新"):
         ensure_history_cached("sh.600000", StrategyConfig(), FailingCurrentProvider())
 
 
@@ -384,17 +400,26 @@ def test_cached_scan_still_fetches_current_market_data(tmp_path, monkeypatch):
     db.upsert_bars(stock.code, make_rows())
 
     FakeProvider.fetch_count = 0
+    snapshot_calls = []
 
     def current_provider(log=None):
         return MultiProvider([FakeProvider], log=log)
 
-    candidates = StockScanner(provider_factory=current_provider).run(StrategyConfig())
+    def current_snapshot(log=None):
+        snapshot_calls.append(True)
+        return {stock.code: _current_bar()}
+
+    candidates = StockScanner(
+        provider_factory=current_provider,
+        snapshot_loader=current_snapshot,
+    ).run(StrategyConfig())
 
     assert [item["code"] for item in candidates] == [stock.code]
-    assert FakeProvider.fetch_count == 1
+    assert snapshot_calls == [True]
+    assert FakeProvider.fetch_count == 0
 
 
-def test_stale_stock_list_falls_back_to_local_cache(tmp_path, monkeypatch):
+def test_stale_stock_list_and_history_provider_can_use_realtime_with_cached_history(tmp_path, monkeypatch):
     monkeypatch.setenv("STOCK_HELPER_DB", str(tmp_path / "list-fallback.db"))
     db.init_db()
     stock = StockInfo("sh.600000", "示例股份")
@@ -405,12 +430,15 @@ def test_stale_stock_list_falls_back_to_local_cache(tmp_path, monkeypatch):
     def failing_provider(log=None):
         return MultiProvider([FailingProvider], log=log)
 
-    with pytest.raises(RuntimeError, match="没有股票取得本轮当日实时行情"):
-        StockScanner(provider_factory=failing_provider).run(
+    candidates = StockScanner(
+        provider_factory=failing_provider,
+        snapshot_loader=lambda log=None: {stock.code: _current_bar()},
+    ).run(
             StrategyConfig(stock_list_ttl_minutes=0),
             log=logs.append,
-        )
+    )
 
+    assert [item["code"] for item in candidates] == [stock.code]
     assert any("股票列表更新失败" in line for line in logs)
 
 
@@ -437,7 +465,7 @@ def test_scanner_fails_when_no_stock_has_usable_history(tmp_path, monkeypatch):
             return []
 
     scanner = StockScanner()
-    with pytest.raises(RealtimeDataUnavailable, match="行情未更新"):
+    with pytest.raises(RealtimeDataUnavailable, match="实时快照未更新"):
         scanner._prepare_histories(
             [StockInfo("sh.600000", "示例股份")],
             StrategyConfig(),

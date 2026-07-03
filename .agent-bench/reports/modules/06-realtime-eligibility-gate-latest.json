@@ -1,8 +1,8 @@
 {
   "module": "06-realtime-eligibility-gate",
   "status": "pass",
-  "p0_passed": 7,
-  "p0_total": 7,
-  "test_count": 52,
+  "p0_passed": 9,
+  "p0_total": 9,
+  "test_count": 57,
   "next_decision": "continue_to_next_module"
 }

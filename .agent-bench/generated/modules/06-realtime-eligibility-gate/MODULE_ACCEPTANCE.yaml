@@ -30,6 +30,16 @@ p0:
     expected: keep them in storage but do not present them as current candidates
     verification: current-date candidate query test
   - id: RT-07
+    subject: bulk realtime snapshot
+    action: provider returns multiple forced pages
+    expected: fetch remaining pages concurrently and retain per-stock quote timestamps
+    verification: realtime provider pagination test
+  - id: RT-08
+    subject: intraday bar
+    action: quote timestamp is today and fresh during an active session
+    expected: build today's OHLCV bar for historical-series analysis
+    verification: realtime provider mapping and freshness tests
+  - id: RT-09
     subject: quality gates
     action: run project evaluation
     expected: all updated tests pass

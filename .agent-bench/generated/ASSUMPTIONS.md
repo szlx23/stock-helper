@@ -50,8 +50,8 @@
 
 ## Assumption: Current-scan daily bar is mandatory
 
-- Decision: Historical K-line cache only supplies the lookback window. Every stock must be fetched again in the current scan and the response must contain today's Asia/Shanghai bar before analysis. Only the stock list retains a 12-hour cache.
+- Decision: Historical K-line cache only supplies the lookback window. Every scan must fetch a bulk realtime snapshot, and every analyzed stock must have today's fresh Asia/Shanghai quote timestamp and valid intraday OHLC. Only the stock list retains a 12-hour cache.
 - Risk level: medium.
 - Reason: The user explicitly requires current-day data up to the scan moment as a hard eligibility gate.
-- Impact if wrong: On holidays, before the provider publishes today's bar, or during provider outages, no stocks may be analyzed.
+- Impact if wrong: On holidays, before valid opening prices exist, or during realtime-provider outages, no stocks may be analyzed.
 - How to change later: This rule must only be relaxed through an explicit product requirement change; it is not a performance toggle.

@@ -58,7 +58,25 @@ def _scanner(stock_count: int, *, delay: float, slow_delay: float | None = None)
     def provider_factory(log=None):
         return MultiProvider([DelayedProvider], log=log)
 
-    return StockScanner(provider_factory=provider_factory)
+    return StockScanner(
+        provider_factory=provider_factory,
+        snapshot_loader=lambda log=None: {
+            stock.code: _snapshot_bar() for stock in DelayedProvider.stocks
+        },
+    )
+
+
+def _snapshot_bar() -> dict:
+    row = make_rows()[-1]
+    return {
+        "date": _market_today().isoformat(),
+        "open": row["open"],
+        "high": row["high"],
+        "low": row["low"],
+        "close": row["close"],
+        "volume": row["volume"],
+        "turn": row["turn"],
+    }
 
 
 def test_fetch_pool_reduces_first_run_wall_time(tmp_path, monkeypatch):
@@ -146,7 +164,14 @@ def test_mixed_universe_analyzes_only_current_day_stocks(tmp_path, monkeypatch):
         return MultiProvider([MixedRealtimeProvider], log=log)
 
     progress_events = []
-    candidates = StockScanner(provider_factory=provider_factory).run(
+    candidates = StockScanner(
+        provider_factory=provider_factory,
+        snapshot_loader=lambda log=None: {
+            stock.code: _snapshot_bar()
+            for stock in MixedRealtimeProvider.stocks
+            if int(stock.code[-1]) % 2 == 0
+        },
+    ).run(
         StrategyConfig(fetch_workers=2, max_workers=2),
         progress=lambda **values: progress_events.append(values),
     )
