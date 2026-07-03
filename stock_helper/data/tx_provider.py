@@ -52,8 +52,10 @@ class TXProvider:
                 "high": _f(row.get("high")),
                 "low": _f(row.get("low")),
                 "close": _f(row.get("close")),
-                "volume": _f(row.get("volume")),
-                "turn": _f(row.get("turnover") or row.get("turn", 0)),
+                # Tencent source only provides 'amount' (成交额), no volume/turnover
+                # Use 0 as placeholder — indicators will handle None safely
+                "volume": 0,
+                "turn": 0,
             })
         return rows
 

@@ -64,11 +64,10 @@ class MultiProvider:
 def make_multi_provider(log=None):
     """Build MultiProvider with available sources in priority order."""
     providers = []
+    # Sina first (full OHLCV data)
+    from stock_helper.data.sina_provider import SinaProvider
+    providers.append(SinaProvider)
+    # Tencent as fallback
     from stock_helper.data.tx_provider import TXProvider
     providers.append(TXProvider)
-    try:
-        from stock_helper.data.sina_provider import SinaProvider
-        providers.append(SinaProvider)
-    except ImportError:
-        pass
     return MultiProvider(providers, log=log)
