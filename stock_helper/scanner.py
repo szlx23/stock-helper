@@ -7,6 +7,9 @@ from stock_helper.data import StockInfo
 from stock_helper.data.multi_provider import make_multi_provider
 import random
 
+_SEED = 42
+random.seed(_SEED)
+
 from stock_helper.indicators import enrich_history
 from stock_helper.strategy import evaluate_stock
 
@@ -128,13 +131,18 @@ class StockScanner:
         return candidates
 
     def _analyze_one_full(self, stock: StockInfo, history: list[dict], config: StrategyConfig, stop_event=None) -> dict:
-        if stop_event is not None and stop_event.is_set():
-            raise ScanCancelled("扫描已取消")
-        enriched = enrich_history(history)
-        result = evaluate_stock(stock.code, stock.name, enriched, config)
-        latest = enriched[-1]
-        c = _candidate(stock, latest, result.score, result.reasons, result.risks)
-        return {"passed": result.passed, "score": result.score, "candidate": c}
+        try:
+            if stop_event is not None and stop_event.is_set():
+                raise ScanCancelled("扫描已取消")
+            enriched = enrich_history(history)
+            result = evaluate_stock(stock.code, stock.name, enriched, config)
+            latest = enriched[-1]
+            c = _candidate(stock, latest, result.score, result.reasons if result.passed else [], result.risks)
+            return {"passed": result.passed, "score": result.score, "candidate": c}
+        except ScanCancelled:
+            raise
+        except Exception:
+            return {"passed": False, "score": 0, "candidate": _candidate(stock, {"date": "", "close": 0, "pct_chg": 0, "ma5": 0, "ma10": 0, "ma20": 0, "ma30": 0, "distance_ma10_pct": 0, "volume_ratio_5": 0, "turn": 0}, 0, [], [])}
 
 
 def run_baostock_scan(config: StrategyConfig, log=None, progress=None, stop_event=None) -> list[dict]:
