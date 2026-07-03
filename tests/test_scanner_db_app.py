@@ -401,6 +401,17 @@ def test_current_candidate_view_excludes_previous_day_results(tmp_path, monkeypa
     assert len(db.latest_candidates()) == 2
 
 
+def test_analysis_result_exposes_hard_reject_reasons():
+    stock = StockInfo("sh.600000", "示例股份")
+    rows = make_rows(last_close=10.8, last_open=10.6)
+    rows[-1]["date"] = _market_today().isoformat()
+
+    result = StockScanner()._analyze_one_full(stock, rows, StrategyConfig())
+
+    assert result["passed"] is False
+    assert "当前不是阴线" in result["rejects"]
+
+
 def test_cached_scan_still_fetches_current_market_data(tmp_path, monkeypatch):
     monkeypatch.setenv("STOCK_HELPER_DB", str(tmp_path / "fully-cached.db"))
     db.init_db()

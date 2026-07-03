@@ -73,7 +73,7 @@ function parseLog(line) {
   const lower = message.toLowerCase();
   if (/失败|错误|异常|不可用|中断|超时/.test(message) || lower.includes("error")) return { time: match?.[1] || "--:--:--", message, tone: "error", label: "错误" };
   if (/命中|最高分|结果已保存|扫描完成|任务结束/.test(message)) return { time: match?.[1] || "--:--:--", message, tone: "done", label: "完成" };
-  if (/取消|跳过|重试|后备源|非实时|实时门槛/.test(message)) return { time: match?.[1] || "--:--:--", message, tone: "warning", label: "提示" };
+  if (/取消|跳过|重试|后备源|非实时|实时门槛|淘汰统计/.test(message)) return { time: match?.[1] || "--:--:--", message, tone: "warning", label: "提示" };
   if (/阶段|进度|启动|连接数据源|股票列表/.test(message)) return { time: match?.[1] || "--:--:--", message, tone: "phase", label: "进度" };
   return { time: match?.[1] || "--:--:--", message, tone: "normal", label: "信息" };
 }

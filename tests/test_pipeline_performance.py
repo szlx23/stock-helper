@@ -120,7 +120,9 @@ def test_first_hit_arrives_before_all_fetches_finish(tmp_path, monkeypatch):
 def test_pipeline_cancellation_does_not_drain_full_queue(tmp_path, monkeypatch):
     monkeypatch.setenv("STOCK_HELPER_DB", str(tmp_path / "cancel.db"))
     db.init_db()
-    scanner = _scanner(20, delay=0.08)
+    # Simulate provider calls that do not return promptly.  Cancellation must
+    # release the scan task instead of waiting for those calls to finish.
+    scanner = _scanner(20, delay=1.0)
     stop_event = threading.Event()
     timer = threading.Timer(0.03, stop_event.set)
     timer.start()
@@ -136,8 +138,23 @@ def test_pipeline_cancellation_does_not_drain_full_queue(tmp_path, monkeypatch):
         timer.cancel()
 
     elapsed = time.perf_counter() - started
-    assert elapsed < 0.35
+    assert elapsed < 0.5
     assert DelayedProvider.completed < len(DelayedProvider.stocks)
+
+
+def test_pipeline_stall_skips_unresponsive_tail(tmp_path, monkeypatch):
+    monkeypatch.setenv("STOCK_HELPER_DB", str(tmp_path / "stall.db"))
+    monkeypatch.setattr("stock_helper.scanner.PIPELINE_STALL_TIMEOUT_SECONDS", 0.05)
+    db.init_db()
+    scanner = _scanner(2, delay=1.0)
+    logs = []
+    started = time.perf_counter()
+
+    candidates = scanner.run(StrategyConfig(fetch_workers=2, max_workers=2), log=logs.append)
+
+    assert time.perf_counter() - started < 0.5
+    assert candidates == []
+    assert any("无进展" in line and "跳过残留" in line for line in logs)
 
 
 def test_fetch_worker_boundary_is_validated():

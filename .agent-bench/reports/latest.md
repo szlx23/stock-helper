@@ -20,7 +20,7 @@ None known for MVP.
 ## Global Hard Gate Results
 
 - `python -m compileall -q stock_helper tests`: pass.
-- `.venv/bin/pytest -q`: pass, 57 tests passed.
+- `.venv/bin/pytest -q`: pass, 59 tests passed.
 - `node --check stock_helper/static/app.js`: pass.
 - `git diff --check`: pass.
 - `bash -n scripts/*.sh .agent-bench/scripts/*.sh`: pass.

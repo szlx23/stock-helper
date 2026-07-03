@@ -1,6 +1,8 @@
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
+from collections import Counter
 from datetime import date, datetime, timedelta
 import threading
+import time
 from zoneinfo import ZoneInfo
 
 from stock_helper import db
@@ -19,6 +21,9 @@ class ScanCancelled(Exception):
 
 class RealtimeDataUnavailable(RuntimeError):
     pass
+
+
+PIPELINE_STALL_TIMEOUT_SECONDS = 30.0
 
 
 class _ThreadLocalProviderPool:
@@ -117,7 +122,10 @@ class StockScanner:
         fetch_pending: dict[Future, StockInfo] = {}
         analysis_pending: dict[Future, StockInfo] = {}
         passed: list[dict] = []
+        reject_reasons: Counter[str] = Counter()
         fetched = analyzed = skipped = realtime_skipped = fetch_fails = analysis_failures = analyzable = 0
+        detached_cleanup = False
+        last_completion_at = time.monotonic()
 
         def submit_fetches() -> None:
             while len(fetch_pending) < fetch_workers * 2:
@@ -151,7 +159,36 @@ class StockScanner:
             while fetch_pending or analysis_pending:
                 if stop_event is not None and stop_event.is_set():
                     raise ScanCancelled("扫描已取消")
-                done, _ = wait((*fetch_pending.keys(), *analysis_pending.keys()), return_when=FIRST_COMPLETED)
+                # A bounded wait is required here.  Without it, setting stop_event
+                # cannot wake a scan whose last provider requests are stuck.
+                done, _ = wait(
+                    (*fetch_pending.keys(), *analysis_pending.keys()),
+                    timeout=0.2,
+                    return_when=FIRST_COMPLETED,
+                )
+                if not done:
+                    if time.monotonic() - last_completion_at < PIPELINE_STALL_TIMEOUT_SECONDS:
+                        continue
+                    stalled_fetches = len(fetch_pending)
+                    stalled_analyses = len(analysis_pending)
+                    fetched += stalled_fetches
+                    # No new work can start once all fetch workers are wedged;
+                    # account for queued and not-yet-submitted stocks as skipped.
+                    skipped = total - analyzed
+                    fetch_fails += stalled_fetches
+                    _log(
+                        log,
+                        f"流水线连续 {PIPELINE_STALL_TIMEOUT_SECONDS:g} 秒无进展，"
+                        f"跳过残留拉取 {stalled_fetches}、分析 {stalled_analyses} 只",
+                    )
+                    for future in (*fetch_pending.keys(), *analysis_pending.keys()):
+                        future.cancel()
+                    fetch_pending.clear()
+                    analysis_pending.clear()
+                    detached_cleanup = True
+                    emit_progress(action="timeout")
+                    break
+                last_completion_at = time.monotonic()
                 for future in done:
                     if future in fetch_pending:
                         stock = fetch_pending.pop(future)
@@ -184,6 +221,8 @@ class StockScanner:
                         scored = future.result()
                         if scored.get("error"):
                             analysis_failures += 1
+                        elif not scored["passed"]:
+                            reject_reasons.update(scored.get("rejects", []))
                         if scored["passed"]:
                             passed.append(scored["candidate"])
                             _log(log, f"命中 {scored['candidate']['code']} {scored['candidate']['name']}，评分 {scored['candidate']['score']}")
@@ -194,16 +233,40 @@ class StockScanner:
                             _log(log, "首只股票已完成分析，后续行情仍在并行拉取")
                         if analyzed % 100 == 0:
                             _log(log, f"流水线分析 {analyzed}/{analyzable}，拉取 {fetched}/{total}，命中 {len(passed)}")
-        finally:
+                            _log_reject_summary(log, reject_reasons, analyzed)
+        except ScanCancelled:
             for future in (*fetch_pending.keys(), *analysis_pending.keys()):
                 future.cancel()
-            fetch_executor.shutdown(wait=True, cancel_futures=True)
-            analysis_executor.shutdown(wait=True, cancel_futures=True)
-            provider_pool.close()
+            # Running Python threads cannot be forcefully interrupted.  Release
+            # the task immediately so the UI can start another scan, and reap
+            # any in-flight provider calls in a daemon cleanup thread.
+            fetch_executor.shutdown(wait=False, cancel_futures=True)
+            analysis_executor.shutdown(wait=False, cancel_futures=True)
+            threading.Thread(
+                target=_finish_cancelled_pipeline,
+                args=(fetch_executor, analysis_executor, provider_pool),
+                name="stock-pipeline-cleanup",
+                daemon=True,
+            ).start()
+            raise
+        else:
+            if detached_cleanup:
+                fetch_executor.shutdown(wait=False, cancel_futures=True)
+                analysis_executor.shutdown(wait=False, cancel_futures=True)
+                threading.Thread(
+                    target=_finish_cancelled_pipeline,
+                    args=(fetch_executor, analysis_executor, provider_pool),
+                    name="stock-pipeline-cleanup",
+                    daemon=True,
+                ).start()
+            else:
+                fetch_executor.shutdown(wait=True, cancel_futures=True)
+                analysis_executor.shutdown(wait=True, cancel_futures=True)
+                provider_pool.close()
 
-        if analyzable == 0:
+        if analyzable == 0 and not detached_cleanup:
             raise RuntimeError("没有股票取得本轮当日实时行情，已全部停止分析")
-        if analysis_failures == analyzable:
+        if analyzable > 0 and analysis_failures == analyzable:
             raise RuntimeError("所有股票分析均失败，请检查行情数据格式")
         if fetch_fails:
             _log(log, f"数据提示：{fetch_fails} 只股票未取得足够历史行情")
@@ -211,6 +274,7 @@ class StockScanner:
             _log(log, f"实时门槛：{realtime_skipped} 只股票未取得本轮当日行情，未参与分析")
         if analysis_failures:
             _log(log, f"分析警告：{analysis_failures} 只股票因数据异常未完成评估")
+        _log_reject_summary(log, reject_reasons, analyzed, final=True)
         passed.sort(key=lambda item: (-item["score"], item["code"]))
         emit_progress()
         _log(log, f"扫描完成：拉取 {fetched}，分析 {analyzed}，命中 {len(passed)} 只")
@@ -333,11 +397,17 @@ class StockScanner:
             result = evaluate_stock(stock.code, stock.name, enriched, config)
             latest = enriched[-1]
             c = _candidate(stock, latest, result.score, result.reasons if result.passed else [], result.risks)
-            return {"passed": result.passed, "score": result.score, "candidate": c, "error": None}
+            return {
+                "passed": result.passed,
+                "score": result.score,
+                "candidate": c,
+                "error": None,
+                "rejects": result.risks if not result.passed else [],
+            }
         except ScanCancelled:
             raise
         except Exception as exc:
-            return {"passed": False, "score": 0, "candidate": _candidate(stock, {"date": "", "close": 0, "pct_chg": 0, "ma5": 0, "ma10": 0, "ma20": 0, "ma30": 0, "distance_ma10_pct": 0, "volume_ratio_5": 0, "turn": 0}, 0, [], []), "error": str(exc)}
+            return {"passed": False, "score": 0, "candidate": _candidate(stock, {"date": "", "close": 0, "pct_chg": 0, "ma5": 0, "ma10": 0, "ma20": 0, "ma30": 0, "distance_ma10_pct": 0, "volume_ratio_5": 0, "turn": 0}, 0, [], []), "error": str(exc), "rejects": []}
 
 
 def run_baostock_scan(config: StrategyConfig, log=None, progress=None, stop_event=None) -> list[dict]:
@@ -458,6 +528,21 @@ def _is_etf_or_index(code: str, name: str, number: str) -> bool:
 def _log(log, message: str) -> None:
     if log is not None:
         log(message)
+
+
+def _log_reject_summary(log, reasons: Counter[str], analyzed: int, final: bool = False) -> None:
+    if not reasons:
+        return
+    top = "；".join(f"{reason} {count}" for reason, count in reasons.most_common(6))
+    prefix = "最终淘汰统计" if final else f"前 {analyzed} 只淘汰统计"
+    _log(log, f"{prefix}：{top}")
+
+
+def _finish_cancelled_pipeline(fetch_executor, analysis_executor, provider_pool) -> None:
+    """Close providers only after cancelled in-flight worker calls have returned."""
+    fetch_executor.shutdown(wait=True, cancel_futures=True)
+    analysis_executor.shutdown(wait=True, cancel_futures=True)
+    provider_pool.close()
 
 
 def _progress(progress, **values) -> None:

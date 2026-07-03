@@ -10,7 +10,7 @@
   ],
   "global_hard_gate_results": {
     "compile": "pass",
-    "pytest": "pass (57)",
+    "pytest": "pass (59)",
     "javascript_syntax": "pass",
     "shell_syntax": "pass"
   },
