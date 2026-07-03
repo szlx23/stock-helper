@@ -24,6 +24,23 @@ p0:
     action: render home scan form and candidate cards
     expected: home contains max_price and score fields; candidates render from latest scan
     verification: tests/test_scanner_db_app.py::test_home_renders_scan_form
+  - id: P0-006
+    subject: Web mutation endpoints
+    action: receive malformed, invalid, or unauthorized input
+    expected: reject safely without starting a scan or deleting persisted data
+    verification: tests/test_scanner_db_app.py web validation tests
+  - id: P0-007
+    subject: Scan lifecycle
+    action: a scan is replaced or fails before its database record is created
+    expected: current task state remains isolated and reaches a terminal state
+    verification: tests/test_scanner_db_app.py scan manager tests
+  - id: P0-008
+    subject: Market data provider
+    action: active source fails during a request
+    expected: switch to the next configured source and retry the request
+    verification: tests/test_scanner_db_app.py::test_multi_provider_falls_back_when_active_source_request_fails
 global_hard_gates:
+  - compile
   - pytest
+  - shell-syntax
 completion_rule: all P0 checks pass and README startup instructions exist

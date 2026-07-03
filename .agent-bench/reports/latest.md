@@ -2,12 +2,13 @@
 
 ## Overall Status
 
-Pass.
+Pass. All project P0 acceptance criteria and hard gates are verified.
 
 ## Completed Modules
 
 - 01-scan-config-strategy
 - 02-web-scan-candidates
+- 03-review-hardening
 
 ## Incomplete Modules
 
@@ -15,11 +16,15 @@ None known for MVP.
 
 ## Global Hard Gate Results
 
-- `timeout 60 .venv/bin/pytest -q`: pass, 6 tests passed.
+- `python -m compileall -q stock_helper tests`: pass.
+- `.venv/bin/pytest -q`: pass, 17 tests passed.
+- `node --check stock_helper/static/app.js`: pass.
+- `git diff --check`: pass.
+- `bash -n scripts/*.sh .agent-bench/scripts/*.sh`: pass.
 
 ## P0 Project Acceptance Pass Rate
 
-100%.
+100% (8/8).
 
 ## Known Assumptions
 
@@ -27,18 +32,21 @@ See `.agent-bench/generated/ASSUMPTIONS.md`.
 
 ## Known Limitations
 
-- BaoStock scanning depends on network and third-party service availability.
-- Buy/sell records, next-day sell plan, and review statistics are out of the first MVP scope.
+- Market scanning depends on network and third-party service availability.
+- Live provider behavior is not part of the deterministic test gate.
+- The legacy operation password remains the compatibility fallback; deployments should set `STOCK_HELPER_PASSWORD`.
+- Buy/sell records, next-day sell plan, and review statistics remain outside MVP scope.
 
 ## How To Run
 
 ```bash
 pip install -e ".[dev]"
+export STOCK_HELPER_PASSWORD='replace-with-a-strong-password'
 uvicorn stock_helper.app:app --host 0.0.0.0 --port 8501
 ```
 
 ## How To Evaluate
 
 ```bash
-pytest
+bash .agent-bench/scripts/run_project_eval.sh
 ```

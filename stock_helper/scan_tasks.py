@@ -52,7 +52,6 @@ class ScanTaskManager:
             hits = self._live_hits[hit_offset:]
             hit_off = len(self._live_hits)
             return self._task_id, logs, self._done, len(self._logs), dict(self._progress), hits, hit_off
-            return self._task_id, logs, self._done, len(self._logs), dict(self._progress), hits, hit_off
 
     def status(self) -> dict:
         with self._lock:
@@ -65,27 +64,35 @@ class ScanTaskManager:
             }
 
     def _run_task(self, task_id: int, config: StrategyConfig, cancel_event: threading.Event) -> None:
-        scan_id = db.create_scan(config)
-        self.append(f"DB写入完成 (scan_id={scan_id})，开始连接数据源...")
+        scan_id = None
         try:
-            candidates = run_baostock_scan(config, log=self.append, progress=self.update_progress, stop_event=cancel_event)
+            scan_id = db.create_scan(config)
+            self._append_for(task_id, f"DB写入完成 (scan_id={scan_id})，开始连接数据源...")
+            candidates = run_baostock_scan(
+                config,
+                log=lambda message: self._append_for(task_id, message),
+                progress=lambda **values: self._update_progress_for(task_id, **values),
+                stop_event=cancel_event,
+            )
         except ScanCancelled as exc:
-            db.finish_scan(scan_id, 0, "cancelled", str(exc))
-            self.append("上一轮扫描已取消")
+            if scan_id is not None:
+                db.finish_scan(scan_id, 0, "cancelled", str(exc))
+            self._append_for(task_id, "上一轮扫描已取消")
         except Exception as exc:
-            db.finish_scan(scan_id, 0, "failed", str(exc))
-            self.append(f"扫描失败：{exc}")
+            if scan_id is not None:
+                db.finish_scan(scan_id, 0, "failed", str(exc))
+            self._append_for(task_id, f"扫描失败：{exc}")
         else:
             if cancel_event.is_set():
                 db.finish_scan(scan_id, 0, "cancelled", "扫描已取消")
-                self.append("上一轮扫描已取消")
+                self._append_for(task_id, "上一轮扫描已取消")
             else:
                 db.replace_candidates(scan_id, candidates)
                 db.finish_scan(scan_id, len(candidates))
-                self.append(f"结果已保存：{len(candidates)} 只候选股")
+                self._append_for(task_id, f"结果已保存：{len(candidates)} 只候选股")
                 if candidates:
                     top = candidates[0]
-                    self.append(f"最高分：{top['code']} {top['name']}，{top['score']} 分")
+                    self._append_for(task_id, f"最高分：{top['code']} {top['name']}，{top['score']} 分")
         finally:
             with self._lock:
                 if task_id == self._task_id:
@@ -101,6 +108,20 @@ class ScanTaskManager:
 
     def update_progress(self, **values) -> None:
         with self._lock:
+            detail = values.pop("hits_detail", None)
+            self._progress.update(values)
+            if detail:
+                self._live_hits.append(detail)
+
+    def _append_for(self, task_id: int, message: str) -> None:
+        with self._lock:
+            if task_id == self._task_id:
+                self._append_locked(message)
+
+    def _update_progress_for(self, task_id: int, **values) -> None:
+        with self._lock:
+            if task_id != self._task_id:
+                return
             detail = values.pop("hits_detail", None)
             self._progress.update(values)
             if detail:

@@ -1,0 +1,13 @@
+{
+  "module": "03-review-hardening",
+  "status": "pass",
+  "p0_passed": 4,
+  "p0_total": 4,
+  "commands": [
+    "python -m compileall -q stock_helper tests",
+    ".venv/bin/pytest -q",
+    "git diff --check",
+    "bash -n scripts/*.sh .agent-bench/scripts/*.sh"
+  ],
+  "next_decision": "continue_to_next_module"
+}

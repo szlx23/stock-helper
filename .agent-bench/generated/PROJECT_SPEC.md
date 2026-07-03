@@ -12,8 +12,8 @@ A single individual using a phone browser against an Ubuntu cloud server.
 
 1. Open `/`, review latest scan summary.
 2. Adjust hard filter parameters and score weights.
-3. Submit `POST /run-scan`.
-4. Backend builds `StrategyConfig`, scans BaoStock data, stores scan task and candidates.
+3. Submit `POST /run-scan` with the operation password.
+4. Backend validates `StrategyConfig`, scans market data with provider fallback, and stores the scan task and candidates.
 5. Open `/candidates`, review mobile cards sorted by score descending.
 
 ## Hard Constraints
@@ -23,14 +23,15 @@ A single individual using a phone browser against an Ubuntu cloud server.
 - `max_price` is a hard filter, never a score item.
 - Score weights must come from the submitted form.
 - Scan task must save the parameter snapshot.
+- Invalid mutation requests must not start a scan or delete data.
 
 ## Non-goals
 
 - Automatic trading.
 - Native Android app.
-- Authentication.
+- Multi-user authentication and authorization.
 - Full buy/sell records and review statistics in MVP.
 
 ## Evaluation
 
-Run `pytest`. The tests cover strategy filtering, custom scoring weights, scanner behavior, database persistence, and home page form rendering.
+Run `pytest` plus compilation and shell syntax checks. Tests cover strategy filtering, custom scoring weights, scanner behavior, provider fallback, database persistence, web validation, task lifecycle, and home page rendering.

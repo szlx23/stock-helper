@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
+import hmac
 import json
+import os
 import time
 
 from fastapi import FastAPI, Request
@@ -57,9 +59,12 @@ def candidates(request: Request):
 async def run_scan(request: Request):
     form = await request.form()
     pwd = form.get("run_password", "")
-    if pwd != "001023":
+    if not _password_matches(pwd):
         return JSONResponse({"ok": False, "error": "密码错误"}, status_code=403)
-    config = _config_from_form(form)
+    try:
+        config = _config_from_form(form)
+    except (TypeError, ValueError) as exc:
+        return JSONResponse({"ok": False, "error": f"参数错误：{exc}"}, status_code=422)
     task_id = scan_manager.start(config)
     return JSONResponse({"ok": True, "task_id": task_id})
 
@@ -81,20 +86,33 @@ def scan_events():
                 yield f"data: {json.dumps({'type': 'log', 'task_id': task_id, 'line': '任务结束', 'done': True}, ensure_ascii=False)}\n\n"
                 break
             idle_ticks += 1
-            if idle_ticks > 1800:
+            if idle_ticks > 9000:
                 yield f"data: {json.dumps({'type': 'log', 'task_id': task_id, 'line': '连接超时', 'done': True}, ensure_ascii=False)}\n\n"
                 break
-            time.sleep(1)
+            time.sleep(0.2)
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.post("/clear-db")
 async def clear_db(request: Request):
-    body = await request.json()
-    if body.get("password") != "001023":
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"ok": False, "error": "请求格式错误"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "请求格式错误"}, status_code=400)
+    if not _password_matches(body.get("password", "")):
         return JSONResponse({"ok": False, "error": "密码错误"}, status_code=403)
-    import sqlite3, os
+    import sqlite3
     db_path = db.get_db_path()
     conn = sqlite3.connect(str(db_path))
     for t in ("stock_daily_bars", "candidates", "scan_tasks", "stock_info_cache"):
@@ -125,6 +143,11 @@ def _config_from_form(form) -> StrategyConfig:
     for name, _, _ in EXCLUDE_FIELDS:
         values[name] = name in form
     return StrategyConfig.from_mapping(values)
+
+
+def _password_matches(value: object) -> bool:
+    expected = os.getenv("STOCK_HELPER_PASSWORD", "001023")
+    return hmac.compare_digest(str(value), expected)
 
 
 def _summary_payload(summary: dict) -> dict:

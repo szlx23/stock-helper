@@ -1,0 +1,29 @@
+criteria:
+  - id: RH-01
+    priority: P0
+    subject: configuration parser
+    action: receive invalid numeric input
+    expected: web endpoint returns a client error and no background task starts
+    verification: API test
+    tests: [test_run_scan_rejects_invalid_config]
+  - id: RH-02
+    priority: P0
+    subject: protected destructive operations
+    action: receive an incorrect password
+    expected: return HTTP 403 and preserve database state
+    verification: API test
+    tests: [test_clear_db_rejects_bad_password]
+  - id: RH-03
+    priority: P0
+    subject: scan task manager
+    action: a scan raises an exception
+    expected: terminal failed status is persisted and observable
+    verification: unit/integration test
+    tests: [scan-manager-failure-test]
+  - id: RH-04
+    priority: P0
+    subject: complete repository
+    action: run compile and test gates
+    expected: both exit successfully
+    verification: evaluation script
+    tests: [compileall, pytest]

@@ -1,7 +1,15 @@
 {
   "overall_status": "pass",
+  "completed_modules": [
+    "01-scan-config-strategy",
+    "02-web-scan-candidates",
+    "03-review-hardening"
+  ],
   "global_hard_gate_results": {
-    "pytest": "pass"
+    "compile": "pass",
+    "pytest": "pass (17)",
+    "javascript_syntax": "pass",
+    "shell_syntax": "pass"
   },
   "p0_project_acceptance_pass_rate": 1.0
 }

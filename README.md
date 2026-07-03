@@ -13,6 +13,12 @@ uvicorn stock_helper.app:app --host 0.0.0.0 --port 8501
 
 浏览器打开 `http://服务器IP:8501`。
 
+生产或局域网部署时请设置操作密码（未设置时为兼容旧部署仍使用 `001023`）：
+
+```bash
+export STOCK_HELPER_PASSWORD='替换为强密码'
+```
+
 ## 运行测试
 
 ```bash

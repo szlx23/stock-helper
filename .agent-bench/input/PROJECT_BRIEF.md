@@ -14,3 +14,7 @@ Core MVP:
 - Save scan task records with parameter snapshots.
 - Save candidates to SQLite.
 - Show latest summary and mobile card-based candidate list.
+
+Maintenance request:
+- Review the existing implementation for functional, reliability, security, and maintainability problems.
+- Implement safe improvements and verify them without connecting to a brokerage or placing trades.

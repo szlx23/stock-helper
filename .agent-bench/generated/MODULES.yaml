@@ -11,3 +11,9 @@ modules:
     dependencies: [01-scan-config-strategy]
     status: complete
     path: .agent-bench/generated/modules/02-web-scan-candidates
+  - id: 03-review-hardening
+    name: Review and harden screening workflow
+    priority: P0
+    dependencies: [01-scan-config-strategy, 02-web-scan-candidates]
+    status: complete
+    path: .agent-bench/generated/modules/01-review-hardening

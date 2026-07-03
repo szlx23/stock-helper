@@ -34,6 +34,30 @@ class StrategyConfig:
     score_limit_up: int = 5
     score_recent_rise_too_high: int = -15
 
+    def validate(self) -> None:
+        if self.max_price <= 0:
+            raise ValueError("最高股价必须大于 0")
+        if self.lookback_days < 35:
+            raise ValueError("历史回看天数不能少于 35")
+        if self.cache_refresh_days < 0:
+            raise ValueError("缓存补最近天数不能为负数")
+        if not 1 <= self.max_workers <= 24:
+            raise ValueError("并行线程数必须在 1 到 24 之间")
+        if self.max_scan_count < 1:
+            raise ValueError("分析数量上限必须大于 0")
+        for name in (
+            "near_ma10_pct",
+            "max_ma10_ma20_gap",
+            "min_big_yang_pct",
+            "big_vol_multiple",
+            "shrink_vol_ratio",
+            "burst_vol_ratio",
+            "limit_up_pct",
+            "max_recent_rise",
+        ):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} 不能为负数")
+
     @classmethod
     def from_mapping(cls, values: dict) -> "StrategyConfig":
         parsed = {}
@@ -47,7 +71,9 @@ class StrategyConfig:
                 parsed[item.name] = float(raw)
             else:
                 parsed[item.name] = raw
-        return cls(**parsed)
+        config = cls(**parsed)
+        config.validate()
+        return config
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -25,9 +25,9 @@ class StockScanner:
     def run(self, config: StrategyConfig, log=None, progress=None, stop_event=None) -> list[dict]:
         provider = make_multi_provider(log=log)
         opened = provider.__enter__()
-        source = provider.source_name
         try:
             stocks = opened.list_stocks()
+            source = provider.source_name
             if not stocks:
                 # 重试一次（BaoStock 偶发返回空）
                 _log(log, f"{source} 返回空列表，1秒后重试...")

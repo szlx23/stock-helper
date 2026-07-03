@@ -13,7 +13,13 @@ const progressTitle = document.querySelector("[data-progress-title]");
 const progressFill = document.querySelector("[data-progress-fill]");
 const currentStock = document.querySelector("[data-current-stock]");
 const hitCount = document.querySelector("[data-hit-count]");
+const streamState = document.querySelector("[data-stream-state]");
+const clearLogButton = document.querySelector("[data-clear-log]");
 let eventSource = null;
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+let scanIsRunning = false;
+const seenLogLines = new Set();
 
 if (priceInput && priceOutput) {
   const syncPrice = () => {
@@ -53,24 +59,63 @@ allSidebarToggles.forEach((btn) => {
 });
 overlay.addEventListener("click", closeSidebar);
 
-function appendLog(line, tone = "normal") {
+function parseLog(line) {
+  const match = String(line || "").match(/^\[([^\]]+)]\s*(.*)$/);
+  const message = match ? match[2] : String(line || "");
+  const lower = message.toLowerCase();
+  if (/失败|错误|异常|不可用|中断|超时/.test(message) || lower.includes("error")) return { time: match?.[1] || "--:--:--", message, tone: "error", label: "错误" };
+  if (/命中|最高分|结果已保存|扫描完成|任务结束/.test(message)) return { time: match?.[1] || "--:--:--", message, tone: "done", label: "完成" };
+  if (/取消|跳过|重试|后备源/.test(message)) return { time: match?.[1] || "--:--:--", message, tone: "warning", label: "提示" };
+  if (/阶段|进度|启动|连接数据源|股票列表/.test(message)) return { time: match?.[1] || "--:--:--", message, tone: "phase", label: "进度" };
+  return { time: match?.[1] || "--:--:--", message, tone: "normal", label: "信息" };
+}
+
+function appendLog(line, forcedTone = "") {
   if (!logBox) return;
+  const rawLine = String(line || "");
+  if (seenLogLines.has(rawLine)) return;
+  seenLogLines.add(rawLine);
   const placeholder = logBox.querySelector(".log-placeholder");
   if (placeholder) placeholder.remove();
+  const parsed = parseLog(rawLine);
+  if (forcedTone) {
+    parsed.tone = forcedTone;
+    parsed.label = { error: "错误", done: "完成", warning: "提示", phase: "进度" }[forcedTone] || parsed.label;
+  }
   const row = document.createElement("div");
-  row.className = `log-line ${tone}`;
-  row.textContent = line;
+  row.className = `log-line ${parsed.tone}`;
+  const time = document.createElement("time");
+  time.className = "log-time";
+  time.textContent = parsed.time;
+  const kind = document.createElement("span");
+  kind.className = "log-kind";
+  kind.textContent = parsed.label;
+  const message = document.createElement("span");
+  message.className = "log-message";
+  message.textContent = parsed.message;
+  row.append(time, kind, message);
   logBox.append(row);
+  while (logBox.children.length > 500) logBox.firstElementChild.remove();
   logBox.scrollTop = logBox.scrollHeight;
 }
 
 function clearLog() {
   if (logBox) logBox.innerHTML = "";
+  seenLogLines.clear();
+}
+
+function setStreamState(state, text) {
+  if (!streamState) return;
+  streamState.className = `stream-state ${state ? `is-${state}` : ""}`.trim();
+  streamState.lastChild.textContent = text;
 }
 
 function connectEvents() {
   if (eventSource) eventSource.close();
+  if (reconnectTimer) window.clearTimeout(reconnectTimer);
   eventSource = new EventSource("/scan-events");
+  scanIsRunning = true;
+  setStreamState("live", "实时连接");
   if (taskStatus) taskStatus.textContent = "运行中";
   eventSource.onmessage = async (event) => {
     const payload = JSON.parse(event.data);
@@ -88,15 +133,21 @@ function connectEvents() {
       eventSource = null;
       if (runLabel) runLabel.textContent = "启动扫描";
       if (taskStatus) taskStatus.textContent = "已完成";
+      scanIsRunning = false;
+      reconnectAttempts = 0;
+      setStreamState("", "已结束");
       await refreshStatus();
     }
   };
   eventSource.onerror = () => {
-    appendLog("日志连接中断，可重新点击启动扫描。", "error");
+    if (!scanIsRunning) return;
     eventSource.close();
     eventSource = null;
-    if (runLabel) runLabel.textContent = "启动扫描";
-    if (taskStatus) taskStatus.textContent = "连接中断";
+    reconnectAttempts += 1;
+    const delay = Math.min(5000, 500 * (2 ** Math.min(reconnectAttempts - 1, 3)));
+    setStreamState("error", "正在重连");
+    if (reconnectAttempts === 1) appendLog("实时连接短暂中断，正在自动恢复。", "warning");
+    reconnectTimer = window.setTimeout(connectEvents, delay);
   };
 }
 
@@ -104,6 +155,7 @@ async function refreshStatus() {
   const response = await fetch("/scan-status", { headers: { Accept: "application/json" } });
   if (!response.ok) return;
   const payload = await response.json();
+  scanIsRunning = !payload.done;
   renderSummary(payload.summary);
   renderResults(payload.candidates || []);
   renderProgress(payload.progress);
@@ -111,6 +163,8 @@ async function refreshStatus() {
     clearLog();
     payload.logs.forEach((line) => appendLog(line));
   }
+  if (scanIsRunning && !eventSource) connectEvents();
+  if (!scanIsRunning && !eventSource) setStreamState("", "等待连接");
 }
 
 function renderProgress(progress) {
@@ -141,7 +195,9 @@ function renderSummary(summary) {
 let liveHits = [];
 
 function appendHits(newHits) {
-  liveHits = liveHits.concat(newHits);
+  const keyed = new Map(liveHits.map((item) => [`${item.code}:${item.trade_date}`, item]));
+  newHits.forEach((item) => keyed.set(`${item.code}:${item.trade_date}`, item));
+  liveHits = Array.from(keyed.values());
   liveHits.sort((a, b) => b.score - a.score);
   renderLiveHits();
 }
@@ -215,6 +271,7 @@ if (scanForm) {
       eventSource = null;
     }
     clearLog();
+    liveHits = [];
     appendLog("提交参数，准备启动扫描...");
     if (runLabel) runLabel.textContent = "重新运行";
     if (taskStatus) taskStatus.textContent = "启动中";
@@ -258,7 +315,17 @@ if (scanForm) {
   }
 }
 
+if (logBox) {
+  const initialLines = Array.from(logBox.querySelectorAll(".log-line"), (row) => row.textContent);
+  if (initialLines.length) {
+    clearLog();
+    initialLines.forEach((line) => appendLog(line));
+  }
+}
+
 refreshStatus();
+
+if (clearLogButton) clearLogButton.addEventListener("click", clearLog);
 
 const clearDbBtn = document.getElementById("clear-db-btn");
 const clearPwd = document.getElementById("clear-pwd");
