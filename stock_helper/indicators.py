@@ -7,6 +7,7 @@ def enrich_history(rows: list[dict]) -> list[dict]:
         row["vol_ma5"] = _moving_average(cleaned, idx, "volume", 5)
         row["pct_chg"] = _pct_change(cleaned, idx)
         row["distance_ma10_pct"] = _distance(row.get("close"), row.get("ma10"))
+        row["distance_ma20_pct"] = _distance(row.get("close"), row.get("ma20"))
         row["volume_ratio_5"] = _ratio(row.get("volume"), row.get("vol_ma5"))
     return cleaned
 

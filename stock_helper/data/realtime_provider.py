@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from stock_helper.data import normalize_a_share_code
+from stock_helper.market_calendar import expected_market_date
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -68,7 +69,7 @@ def load_realtime_snapshot(log=None) -> dict[str, dict]:
             stale += 1
             continue
         bar = {
-            "date": now.date().isoformat(),
+            "date": quote_time.date().isoformat(),
             "open": _number(item.get("f17")),
             "high": _number(item.get("f15")),
             "low": _number(item.get("f16")),
@@ -83,7 +84,7 @@ def load_realtime_snapshot(log=None) -> dict[str, dict]:
             continue
         snapshot[code] = bar
     if log:
-        log(f"实时快照：有效 {len(snapshot)} 只，非今日/过期 {stale}，价格无效 {invalid}")
+        log(f"实时快照：有效 {len(snapshot)} 只，非目标交易日/过期 {stale}，价格无效 {invalid}")
     if not snapshot:
         raise RealtimeSnapshotError("实时快照中没有可验证的当日行情")
     return snapshot
@@ -100,10 +101,12 @@ def _quote_datetime(value) -> datetime | None:
 
 
 def _quote_is_current(quote_time: datetime | None, now: datetime) -> bool:
-    if quote_time is None or quote_time.date() != now.date():
+    if quote_time is None or quote_time.date() != expected_market_date(now):
         return False
     current = now.time()
-    in_session = time(9, 15) <= current <= time(11, 30) or time(13, 0) <= current <= time(15, 0)
+    in_session = quote_time.date() == now.date() and (
+        time(9, 30) <= current <= time(11, 30) or time(13, 0) <= current <= time(15, 0)
+    )
     if not in_session:
         return True
     age_seconds = (now - quote_time).total_seconds()

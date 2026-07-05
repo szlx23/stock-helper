@@ -5,14 +5,18 @@ import math
 @dataclass(slots=True)
 class StrategyConfig:
     max_price: float = 40.0
-    near_ma10_pct: float = 0.03
-    max_ma10_ma20_gap: float = 0.12
-    min_big_yang_pct: float = 0.045
-    big_vol_multiple: float = 1.6
+    near_ma10_pct: float = 0.02
+    max_ma10_ma20_gap: float = 0.08
+    max_ma10_ma30_gap: float = 0.12
+    min_big_yang_pct: float = 0.05
+    big_vol_multiple: float = 1.8
     shrink_vol_ratio: float = 1.00
     burst_vol_ratio: float = 1.25
     limit_up_pct: float = 0.095
     max_recent_rise: float = 0.65
+    recent_signal_days: int = 20
+    ma_slope_days: int = 3
+    ma20_flat_tolerance: float = 0.002
     lookback_days: int = 80
     cache_refresh_days: int = 7
     stock_list_ttl_minutes: int = 720
@@ -56,15 +60,21 @@ class StrategyConfig:
             raise ValueError("并行线程数必须在 1 到 24 之间")
         if not 1 <= self.max_scan_count <= 100000:
             raise ValueError("分析数量上限必须在 1 到 100000 之间")
+        if not 10 <= self.recent_signal_days <= 40:
+            raise ValueError("前期信号窗口必须在 10 到 40 个交易日之间")
+        if not 1 <= self.ma_slope_days <= 10:
+            raise ValueError("均线斜率观察天数必须在 1 到 10 之间")
         for name in (
             "near_ma10_pct",
             "max_ma10_ma20_gap",
+            "max_ma10_ma30_gap",
             "min_big_yang_pct",
             "big_vol_multiple",
             "shrink_vol_ratio",
             "burst_vol_ratio",
             "limit_up_pct",
             "max_recent_rise",
+            "ma20_flat_tolerance",
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} 不能为负数")
@@ -106,7 +116,11 @@ FILTER_FIELDS = [
     ("near_ma10_pct", "距离10日线最大比例", ""),
     ("burst_vol_ratio", "爆量阴线阈值", ""),
     ("max_ma10_ma20_gap", "10日线和20日线最大距离", ""),
+    ("max_ma10_ma30_gap", "10日线和30日线最大距离", ""),
     ("max_recent_rise", "近40日最大涨幅", ""),
+    ("recent_signal_days", "前期放量信号窗口", "交易日"),
+    ("ma_slope_days", "均线斜率观察期", "交易日"),
+    ("ma20_flat_tolerance", "20日线走平容差", ""),
     ("min_big_yang_pct", "放量大阳线涨幅阈值", ""),
     ("big_vol_multiple", "放量倍数", ""),
     ("shrink_vol_ratio", "缩量/不放量阈值", ""),

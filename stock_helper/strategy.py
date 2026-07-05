@@ -37,18 +37,37 @@ def hard_filter(code: str, name: str, rows: list[dict], config: StrategyConfig) 
     if _missing_ma(latest):
         rejects.append("均线数据不足")
         return rejects
-    if latest.get("volume_ratio_5") is not None and _f(latest.get("volume_ratio_5")) > config.burst_vol_ratio:
+    if _f(latest.get("close")) >= _f(latest.get("open")):
+        rejects.append("当前不是阴线")
+    volume_ratio = _f(latest.get("volume_ratio_5"))
+    previous_volume = _f(rows[-2].get("volume")) if len(rows) >= 2 else 0
+    current_volume = _f(latest.get("volume"))
+    if volume_ratio > config.burst_vol_ratio:
         rejects.append("当前阴线爆量")
+    elif not (previous_volume > 0 and current_volume < previous_volume) and not (0 < volume_ratio < 1):
+        rejects.append("当前阴线未缩量")
     if abs(_f(latest.get("distance_ma10_pct"))) > config.near_ma10_pct:
         rejects.append("距离10日线过远")
+    if _f(latest.get("close")) < _f(latest.get("ma20")):
+        rejects.append("收盘价跌破20日线")
     if _f(latest.get("ma10")) < _f(latest.get("ma20")):
         rejects.append("10日线低于20日线")
-    if _f(latest.get("close")) < _f(latest.get("ma30")) * (1 - config.near_ma10_pct):
-        rejects.append("收盘价明显跌破30日线")
+    if _f(latest.get("ma5")) < _f(latest.get("ma20")) or _f(latest.get("ma10")) < _f(latest.get("ma30")):
+        rejects.append("短期均线受20日或30日线压制")
+    if _f(latest.get("ma20")) < _f(latest.get("ma30")):
+        rejects.append("20日线低于30日线，趋势偏空")
+    if not _ma_up(rows, "ma10", config.ma_slope_days, 0):
+        rejects.append("10日线未保持向上")
+    if not _ma_up(rows, "ma20", config.ma_slope_days, config.ma20_flat_tolerance):
+        rejects.append("20日线向下")
     if _ma10_ma20_gap(latest) > config.max_ma10_ma20_gap:
         rejects.append("10日线与20日线距离过大")
+    if _ma_gap(latest, "ma10", "ma30") > config.max_ma10_ma30_gap:
+        rejects.append("10日线与30日线距离过大，疑似高位退潮")
     if _recent_rise(rows, 40) > config.max_recent_rise:
         rejects.append("近40日涨幅过大")
+    if _best_big_yang(rows, config) is None:
+        rejects.append(f"近{config.recent_signal_days}日无放量大阳线")
     return rejects
 
 
@@ -58,46 +77,50 @@ def score_stock(rows: list[dict], config: StrategyConfig) -> tuple[int, list[str
     reasons: list[str] = []
     risks: list[str] = []
 
-    score += _add(_f(latest.get("close")) < _f(latest.get("open")), config.score_yin_line, "当前阴线", reasons)
-    score += _add(
-        latest.get("volume_ratio_5") is not None and _f(latest.get("volume_ratio_5")) <= config.shrink_vol_ratio,
-        config.score_shrink_volume,
-        "当前缩量或不放量",
-        reasons,
-    )
-    score += _add(
-        abs(_f(latest.get("distance_ma10_pct"))) <= config.near_ma10_pct,
-        config.score_near_ma10,
-        "贴近10日线",
-        reasons,
-    )
+    score += _add(True, config.score_yin_line, "当前阴线", reasons)
+    volume_ratio = _f(latest.get("volume_ratio_5"))
+    shrink_factor = 1.0 if volume_ratio <= 0.8 else 0.75
+    score += round(config.score_shrink_volume * shrink_factor)
+    reasons.append("当前缩量阴线" if volume_ratio < 1 else "当前较前一日缩量且未爆量")
+    distance_ma10 = abs(_f(latest.get("distance_ma10_pct")))
+    near_factor = max(0.55, 1 - distance_ma10 / max(config.near_ma10_pct, 1e-9) * 0.45)
+    score += round(config.score_near_ma10 * near_factor)
+    reasons.append("阴线回踩10日线")
+    reasons.append("贴近10日线")
+    if _f(latest.get("low")) <= _f(latest.get("ma10")) * 1.005:
+        score += max(1, config.score_near_ma10 // 5)
+        reasons.append("盘中触及10日线附近")
     score += _add(_ma_bull(latest), config.score_ma_bull, "均线多头排列", reasons)
     score += _add(_ma_short_ok(latest), config.score_ma_short_ok, "短中期结构尚可", reasons)
-    score += _add(_ma10_up(rows), config.score_ma10_up, "10日线向上", reasons)
+    score += _add(True, config.score_ma10_up, "MA10向上", reasons)
     score += _add(
         _ma10_ma20_gap(latest) <= config.max_ma10_ma20_gap,
         config.score_ma10_ma20_gap_ok,
         "10日线与20日线距离合理",
         reasons,
     )
-    score += _add(_f(latest.get("close")) >= _f(latest.get("ma20")), config.score_above_ma20, "未跌破20日线", reasons)
-    score += _add(_has_big_yang(rows, config), config.score_big_yang, "前期有放量大阳线", reasons)
-    score += _add(_has_limit_up(rows, config), config.score_limit_up, "前期接近涨停", reasons)
+    distance_ma20 = _f(latest.get("close")) / _f(latest.get("ma20")) - 1
+    ma20_safety_factor = min(1.0, 0.6 + max(0.0, distance_ma20) / 0.04 * 0.4)
+    score += round(config.score_above_ma20 * ma20_safety_factor)
+    reasons.append("未跌破20日线")
+    signal = _best_big_yang(rows, config)
+    signal_strength = min(1.4, max(1.0, signal["volume_multiple"] / config.big_vol_multiple)) if signal else 1
+    score += round(config.score_big_yang * signal_strength)
+    reasons.append("前期出现放量大阳线")
+    near_limit_up = _has_limit_up(rows, config)
+    score += _add(near_limit_up, config.score_limit_up, "前期接近涨停", reasons)
+    latest["recent_big_yang"] = signal is not None
+    latest["recent_near_limit_up"] = near_limit_up
+    latest["trend_status"] = "多头排列" if _ma_bull(latest) else "准多头上升"
 
     recent_rise = _recent_rise(rows, 40)
     if recent_rise > config.max_recent_rise:
         score += config.score_recent_rise_too_high
         risks.append(f"近40日低点到高点涨幅{recent_rise:.1%}")
-    if _f(latest.get("close")) >= _f(latest.get("open")):
-        risks.append("当前不是阴线")
-    if _f(latest.get("close")) < _f(latest.get("ma20")):
-        risks.append("收盘价跌破20日线")
-    if _f(latest.get("ma10")) < _f(latest.get("ma20")):
-        risks.append("10日线低于20日线")
-    if latest.get("volume_ratio_5") and _f(latest.get("volume_ratio_5")) > config.shrink_vol_ratio:
-        risks.append("当前未明显缩量")
     if not _ma_bull(latest):
-        risks.append("均线尚未完全多头排列")
+        risks.append("均线为准多头结构，尚未完全多头排列")
+    if distance_ma20 < 0.02:
+        risks.append("收盘价接近20日线，安全垫较薄")
     return score, reasons, risks
 
 
@@ -149,30 +172,44 @@ def _ma_short_ok(row: dict) -> bool:
     return _f(row.get("ma5")) >= _f(row.get("ma10")) and _f(row.get("close")) >= _f(row.get("ma20"))
 
 
-def _ma10_up(rows: list[dict]) -> bool:
-    return len(rows) >= 2 and rows[-1].get("ma10") is not None and rows[-2].get("ma10") is not None and _f(rows[-1]["ma10"]) > _f(rows[-2]["ma10"])
+def _ma_up(rows: list[dict], key: str, days: int, tolerance: float) -> bool:
+    if len(rows) <= days or rows[-1].get(key) is None or rows[-1 - days].get(key) is None:
+        return False
+    previous = _f(rows[-1 - days].get(key))
+    return previous > 0 and _f(rows[-1].get(key)) >= previous * (1 - tolerance)
 
 
 def _ma10_ma20_gap(row: dict) -> float:
-    ma20 = _f(row.get("ma20"))
-    if ma20 == 0:
+    return _ma_gap(row, "ma10", "ma20")
+
+
+def _ma_gap(row: dict, upper: str, lower: str) -> float:
+    base = _f(row.get(lower))
+    if base == 0:
         return 999.0
-    return abs(_f(row.get("ma10")) / ma20 - 1)
+    return abs(_f(row.get(upper)) / base - 1)
 
 
-def _has_big_yang(rows: list[dict], config: StrategyConfig) -> bool:
-    for row in rows[-40:-1]:
-        op = _f(row.get("open"))
-        if op == 0:
+def _best_big_yang(rows: list[dict], config: StrategyConfig) -> dict | None:
+    start = max(5, len(rows) - config.recent_signal_days - 1)
+    best = None
+    for idx in range(start, len(rows) - 1):
+        row = rows[idx]
+        previous_close = _f(rows[idx - 1].get("close"))
+        previous_volumes = [_f(item.get("volume")) for item in rows[idx - 5:idx]]
+        if previous_close <= 0 or any(volume <= 0 for volume in previous_volumes):
             continue
-        pct = _f(row.get("close")) / op - 1
-        if pct >= config.min_big_yang_pct and _f(row.get("volume_ratio_5", 0)) >= config.big_vol_multiple:
-            return True
-    return False
+        pct = _f(row.get("close")) / previous_close - 1
+        volume_multiple = _f(row.get("volume")) / (sum(previous_volumes) / len(previous_volumes))
+        if pct >= config.min_big_yang_pct and volume_multiple >= config.big_vol_multiple:
+            signal = {"pct_chg": pct, "volume_multiple": volume_multiple, "date": row.get("date", "")}
+            if best is None or (pct * volume_multiple) > (best["pct_chg"] * best["volume_multiple"]):
+                best = signal
+    return best
 
 
 def _has_limit_up(rows: list[dict], config: StrategyConfig) -> bool:
-    return any(_f(row.get("pct_chg", 0)) >= config.limit_up_pct for row in rows[-40:-1])
+    return any(_f(row.get("pct_chg", 0)) >= config.limit_up_pct for row in rows[-config.recent_signal_days - 1:-1])
 
 
 def _recent_rise(rows: list[dict], days: int) -> float:

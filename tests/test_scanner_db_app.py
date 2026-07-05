@@ -1,5 +1,6 @@
 import json
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -8,13 +9,42 @@ from starlette.datastructures import FormData
 from starlette.requests import Request
 
 from stock_helper import db
-from stock_helper.app import SECURITY_HEADERS, _config_from_form, add_security_headers, app, cancel_scan, clear_db, healthz, home, run_scan, scan_events
+from stock_helper.app import SECURITY_HEADERS, _config_from_form, add_security_headers, app, cancel_scan, clear_db, healthz, home, market_daily_kline, market_stocks, run_scan, scan_events
 from stock_helper.config import StrategyConfig
 from stock_helper.data import StockInfo, normalize_a_share_code
 from stock_helper.data.multi_provider import MultiProvider
 from stock_helper.scan_tasks import ScanInProgressError, ScanTaskManager
-from stock_helper.scanner import RealtimeDataUnavailable, StockScanner, _limit_stocks, _market_today, ensure_history_cached
+from stock_helper.scanner import RealtimeDataUnavailable, StockScanner, _can_reuse_cached_market_data, _limit_stocks, _market_today, ensure_history_cached
 from tests.test_strategy import make_rows
+
+
+def test_market_date_uses_friday_during_weekend_and_before_monday_open(monkeypatch):
+    monkeypatch.setattr("stock_helper.market_calendar.latest_session_on_or_before", lambda value: None)
+    assert _market_today(datetime(2026, 7, 5, 23, 12)).isoformat() == "2026-07-03"
+    assert _market_today(datetime(2026, 7, 6, 9, 29, 59)).isoformat() == "2026-07-03"
+    assert _market_today(datetime(2026, 7, 6, 9, 30)).isoformat() == "2026-07-06"
+
+
+def test_market_date_uses_exchange_calendar_during_holiday(monkeypatch):
+    monkeypatch.setattr(
+        "stock_helper.market_calendar.latest_session_on_or_before",
+        lambda value: datetime(2026, 9, 30).date(),
+    )
+    assert _market_today(datetime(2026, 10, 2, 10, 0)).isoformat() == "2026-09-30"
+
+
+def test_finalized_cache_reuse_never_applies_during_live_market(monkeypatch):
+    monkeypatch.setattr(
+        "stock_helper.scanner.expected_market_date",
+        lambda now: datetime(2026, 7, 3).date() if now.hour < 9 else datetime(2026, 7, 6).date(),
+    )
+    friday_bar = {"date": "2026-07-03", "open": 10, "high": 11, "low": 9, "close": 10, "volume": 100}
+    monday_bar = {**friday_bar, "date": "2026-07-06"}
+
+    assert _can_reuse_cached_market_data([friday_bar], "2026-07-03 15:10:00", datetime(2026, 7, 6, 8, 0))
+    assert not _can_reuse_cached_market_data([monday_bar], "2026-07-06 10:00:00", datetime(2026, 7, 6, 11, 0))
+    assert not _can_reuse_cached_market_data([monday_bar], "2026-07-06 11:30:00", datetime(2026, 7, 6, 12, 0))
+    assert _can_reuse_cached_market_data([monday_bar], "2026-07-06 15:06:00", datetime(2026, 7, 6, 16, 0))
 
 
 class FakeProvider:
@@ -109,6 +139,9 @@ def test_database_saves_scan_params_and_candidates(tmp_path, monkeypatch):
     assert summary["count"] == 1
     assert json.loads(summary["scan"]["params_json"])["max_price"] == 20
     assert summary["top"]["score"] >= 33
+    assert summary["scan"]["finished_at"] is not None
+    assert summary["scan"]["duration_seconds"] is not None
+    assert summary["scan"]["elapsed_seconds"] == summary["scan"]["duration_seconds"]
 
 
 def test_home_renders_scan_form(tmp_path, monkeypatch):
@@ -136,6 +169,49 @@ def test_home_renders_scan_form(tmp_path, monkeypatch):
     assert 'name="score_yin_line"' in body
     assert 'data-log-box' in body
     assert 'data-results-list' in body
+    assert 'data-market-viewer' in body
+    assert 'data-stock-list' in body
+    assert 'data-scan-duration' in body
+
+
+def test_market_api_lists_scan_cache_and_reads_daily_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("STOCK_HELPER_DB", str(tmp_path / "market-api.db"))
+    db.init_db()
+    db.upsert_stock_list([
+        StockInfo("sh.600000", "浦发银行"),
+        StockInfo("sh.600001", "示例股份"),
+        StockInfo("sz.000001", "平安银行"),
+    ])
+    db.upsert_bars("sh.600001", [{"date": "2026-07-03", "open": 10, "high": 11, "low": 9, "close": 10, "volume": 100, "turn": 1}])
+    db.upsert_bars("sz.000001", [{"date": "2026-07-03", "open": 10, "high": 11, "low": 9, "close": 10, "volume": 100, "turn": 1}])
+    with db.connect() as conn:
+        conn.executemany(
+            """
+            INSERT INTO daily_kline
+            (code, trade_date, open, high, low, close, volume, amount, pct_chg, turnover, source)
+            VALUES (?, ?, 10, 11, 9, 10.5, 100, 1000, 1.2, 0.8, 'eastmoney')
+            """,
+            [("sh.600000", "2026-07-02"), ("sh.600000", "2026-07-03")],
+        )
+
+    stocks_payload = json.loads(market_stocks().body)
+    assert [item["code"] for item in stocks_payload] == ["sz.000001", "sh.600000", "sh.600001"]
+    assert stocks_payload[0]["rows_count"] == 1
+    assert stocks_payload[2]["source"] == "scan_cache"
+
+    detail_payload = json.loads(market_daily_kline("600000", 2).body)
+    assert detail_payload["name"] == "浦发银行"
+    assert detail_payload["refreshed"] is False
+    assert [row["trade_date"] for row in detail_payload["rows"]] == ["2026-07-02", "2026-07-03"]
+
+    one_day_payload = json.loads(market_daily_kline("600001", 80).body)
+    assert one_day_payload["refreshed"] is False
+    assert len(one_day_payload["rows"]) == 1
+    assert one_day_payload["rows"][0]["source"] == "scan_cache"
+
+    empty_response = market_daily_kline("600127", 80)
+    assert empty_response.status_code == 200
+    assert json.loads(empty_response.body)["rows"] == []
 
 
 def test_unchecked_exclude_options_parse_as_false():

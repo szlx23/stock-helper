@@ -19,11 +19,26 @@ const streamState = document.querySelector("[data-stream-state]");
 const clearLogButton = document.querySelector("[data-clear-log]");
 const runButton = document.querySelector("button[form='scan-form']");
 const clearDbBtn = document.getElementById("clear-db-btn");
+const scanDuration = document.querySelector("[data-scan-duration]");
+const marketViewer = document.querySelector("[data-market-viewer]");
+const stockList = document.querySelector("[data-stock-list]");
+const stockSearch = document.querySelector("[data-stock-search]");
+const stockDetail = document.querySelector("[data-stock-detail]");
+const marketStatus = document.querySelector("[data-market-status]");
+const marketRefresh = document.querySelector("[data-market-refresh]");
 let eventSource = null;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
 let scanIsRunning = false;
 const seenLogLines = new Set();
+let marketStocks = [];
+let selectedMarketCode = "";
+let marketRequest = null;
+let marketRefreshTimer = null;
+let lastMarketRows = [];
+let durationTimer = null;
+let durationBaseSeconds = Number(scanDuration?.dataset.seconds || 0);
+let durationTickStartedAt = 0;
 
 if (priceInput && priceOutput) {
   const syncPrice = () => {
@@ -140,6 +155,10 @@ function applyTaskState(outcome) {
     clearDbBtn.disabled = scanIsRunning;
     clearDbBtn.title = scanIsRunning ? "扫描运行中不能清空数据库" : "清空本地扫描数据";
   }
+  if (!scanIsRunning && durationTimer) {
+    window.clearInterval(durationTimer);
+    durationTimer = null;
+  }
 }
 
 function connectEvents() {
@@ -232,30 +251,235 @@ function renderSummary(summary) {
   if (topCandidate) {
     topCandidate.textContent = summary.top ? `${summary.top.code} ${summary.top.name}` : "暂无";
   }
+  const scan = summary.scan;
+  if (scan && scan.elapsed_seconds != null) {
+    durationBaseSeconds = Number(scan.elapsed_seconds) || 0;
+    if (scan.status === "running") startDurationTimer(durationBaseSeconds);
+    else {
+      stopDurationTimer();
+      renderDuration(durationBaseSeconds);
+    }
+  } else if (!scanIsRunning) {
+    stopDurationTimer();
+    if (scanDuration) scanDuration.textContent = "暂无";
+  }
+}
+
+function renderDuration(seconds) {
+  if (!scanDuration) return;
+  const value = Math.max(0, Number(seconds) || 0);
+  if (value < 60) scanDuration.textContent = `${value.toFixed(1)} 秒`;
+  else {
+    const minutes = Math.floor(value / 60);
+    const remain = Math.floor(value % 60);
+    scanDuration.textContent = `${minutes} 分 ${String(remain).padStart(2, "0")} 秒`;
+  }
+}
+
+function startDurationTimer(baseSeconds = 0) {
+  stopDurationTimer();
+  durationBaseSeconds = Number(baseSeconds) || 0;
+  durationTickStartedAt = performance.now();
+  renderDuration(durationBaseSeconds);
+  durationTimer = window.setInterval(() => {
+    renderDuration(durationBaseSeconds + (performance.now() - durationTickStartedAt) / 1000);
+  }, 200);
+}
+
+function stopDurationTimer() {
+  if (durationTimer) window.clearInterval(durationTimer);
+  durationTimer = null;
 }
 
 function renderLatestData(bar, source, code, name) {
-  if (latestDataSource) {
-    latestDataSource.textContent = source || "等待启动";
+  if (!bar || !code || !marketViewer) return;
+  window.clearTimeout(marketRefreshTimer);
+  marketRefreshTimer = window.setTimeout(() => loadMarketStocks(false), 700);
+}
+
+async function loadMarketStocks(autoSelect = true) {
+  if (!stockList) return;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch("/api/market/stocks", { headers: { Accept: "application/json" }, signal: controller.signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    marketStocks = (Array.isArray(payload) ? payload : (payload.stocks || [])).map((stock) => ({
+      ...stock,
+      code: String(stock.code || ""),
+      name: String(stock.name || stock.code || "未命名股票"),
+    })).sort((a, b) => stockCodeNumber(a.code).localeCompare(stockCodeNumber(b.code), "zh-CN", { numeric: true }) || a.code.localeCompare(b.code));
+    renderMarketStocks();
+    if (marketStatus) marketStatus.textContent = marketStocks.length ? `本地已缓存 ${marketStocks.length} 只` : "暂无缓存数据";
+    if (autoSelect && !selectedMarketCode && marketStocks.length) selectMarketStock(marketStocks[0].code);
+  } catch (error) {
+    const message = error.name === "AbortError" ? "读取超时，请刷新页面重试" : error.message;
+    if (marketStatus) marketStatus.textContent = "股票列表读取失败";
+    stockList.innerHTML = `<div class="viewer-error">${escapeHtml(message)}</div>`;
+  } finally {
+    window.clearTimeout(timeout);
   }
-  if (!latestDataBody) return;
-  if (!bar) {
-    latestDataBody.innerHTML = '<div class="empty compact">这里会显示刚拉取到的股票最新日期和当天行情。</div>';
+}
+
+function renderMarketStocks() {
+  if (!stockList) return;
+  const query = (stockSearch?.value || "").trim().toLowerCase();
+  const compactQuery = query.replace(/^(sh|sz|bj)[.]?/, "");
+  const visible = marketStocks.filter((stock) => {
+    const code = String(stock.code || "").toLowerCase();
+    const number = stockCodeNumber(code);
+    const name = String(stock.name || "").toLowerCase();
+    return !query || code.includes(query) || number.includes(compactQuery) || name.includes(query);
+  });
+  if (!visible.length) {
+    stockList.innerHTML = `<div class="viewer-empty">${marketStocks.length ? "没有匹配的股票" : "暂无已拉取股票"}</div>`;
     return;
   }
-  latestDataBody.innerHTML = `
-    <div class="data-snapshot-grid">
-      <span>股票 <b>${escapeHtml(code)} ${escapeHtml(name)}</b></span>
-      <span>日期 <b>${escapeHtml(bar.date)}</b></span>
-      <span>开盘 <b>${formatNumber(bar.open)}</b></span>
-      <span>最高 <b>${formatNumber(bar.high)}</b></span>
-      <span>最低 <b>${formatNumber(bar.low)}</b></span>
-      <span>收盘 <b>${formatNumber(bar.close)}</b></span>
-      <span>成交量 <b>${formatNumber(bar.volume)}</b></span>
-      <span>换手 <b>${formatNumber(bar.turn)}</b></span>
+  stockList.innerHTML = visible.map((stock) => `
+    <button class="stock-option ${stock.code === selectedMarketCode ? "is-selected" : ""}" type="button"
+            role="option" aria-selected="${stock.code === selectedMarketCode}" data-stock-code="${escapeHtml(stock.code)}">
+      <span><b>${escapeHtml(stock.code.split(".").pop())}</b><small>${escapeHtml(stock.name)}</small></span>
+      <span class="stock-cache-meta"><b>${Number(stock.rows_count || 0)}</b><small>${escapeHtml(stock.latest_trade_date || "--")}</small></span>
+    </button>
+  `).join("");
+}
+
+async function selectMarketStock(code, forceRefresh = false) {
+  selectedMarketCode = String(code || "");
+  renderMarketStocks();
+  if (marketRefresh) marketRefresh.disabled = true;
+  if (marketStatus) marketStatus.textContent = forceRefresh ? "正在增量刷新…" : "正在读取本地 K 线…";
+  if (stockDetail) stockDetail.innerHTML = '<div class="viewer-loading tall"><i></i><span>读取本地日 K 数据</span></div>';
+  if (marketRequest) marketRequest.abort();
+  marketRequest = new AbortController();
+  try {
+    const url = forceRefresh ? "/api/market/daily-kline/refresh" : `/api/market/daily-kline?code=${encodeURIComponent(code)}&lookback_days=80`;
+    const options = forceRefresh
+      ? { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ code, lookback_days: 80 }), signal: marketRequest.signal }
+      : { headers: { Accept: "application/json" }, signal: marketRequest.signal };
+    const response = await fetch(url, options);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    if (selectedMarketCode !== code) return;
+    renderMarketDetail(payload);
+    const rowCount = (payload.rows || []).length;
+    if (marketStatus) marketStatus.textContent = payload.refreshed ? `增量数据已更新 · ${rowCount} 日` : (rowCount ? `当前仅有 ${rowCount} 个交易日数据` : "暂无本地K线数据");
+    await loadMarketStocks(false);
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    if (marketStatus) marketStatus.textContent = "日 K 数据加载失败";
+    if (stockDetail) stockDetail.innerHTML = `<div class="viewer-error tall"><b>无法加载数据</b><span>${escapeHtml(error.message)}</span></div>`;
+  } finally {
+    if (selectedMarketCode === code && marketRefresh) marketRefresh.disabled = false;
+  }
+}
+
+function renderMarketDetail(payload) {
+  if (!stockDetail) return;
+  const rows = payload.rows || [];
+  lastMarketRows = rows;
+  if (!rows.length) {
+    stockDetail.innerHTML = '<div class="viewer-empty tall"><b>暂无本地K线数据</b><span>如需联网补充，可点击“刷新当前股票”</span></div>';
+    return;
+  }
+  const latest = rows[rows.length - 1];
+  stockDetail.innerHTML = `
+    <div class="stock-detail-head">
+      <div><b>${escapeHtml(payload.code)}</b><span>${escapeHtml(payload.name || "")}</span></div>
+      <div class="detail-badges"><span>${escapeHtml(latest.trade_date)}</span><span>${escapeHtml(latest.source || "--")}</span><span>${rows.length} 日</span></div>
+    </div>
+    ${rows.length < 80 ? `<div class="local-data-note">当前仅有 <b>${rows.length}</b> 个交易日数据，以下展示全部本地记录。</div>` : ""}
+    <div class="kline-legend"><span class="ma5">MA5</span><span class="ma10">MA10</span><span class="ma20">MA20</span><small>红涨 · 绿跌</small></div>
+    <div class="kline-stage"><canvas data-kline-canvas role="img" aria-label="${escapeHtml(payload.code)} 最近 ${rows.length} 个交易日日 K 图"></canvas></div>
+    <div class="kline-table-wrap">
+      <table class="kline-table">
+        <thead><tr><th>日期</th><th>开盘</th><th>最高</th><th>最低</th><th>收盘</th><th>成交量</th><th>成交额</th><th>涨跌幅</th><th>换手率</th></tr></thead>
+        <tbody>${rows.slice().reverse().map((row) => `<tr>
+          <td>${escapeHtml(row.trade_date)}</td><td>${formatNumber(row.open)}</td><td>${formatNumber(row.high)}</td>
+          <td>${formatNumber(row.low)}</td><td>${formatNumber(row.close)}</td><td>${formatCompact(row.volume)}</td>
+          <td>${formatCompact(row.amount)}</td><td class="${Number(row.pct_chg) >= 0 ? "up" : "down"}">${formatPointPercent(row.pct_chg)}</td>
+          <td>${formatPointPercent(row.turnover)}</td></tr>`).join("")}</tbody>
+      </table>
     </div>
   `;
+  window.requestAnimationFrame(() => drawKline(stockDetail.querySelector("[data-kline-canvas]"), rows));
 }
+
+function drawKline(canvas, rows) {
+  if (!canvas || !rows.length) return;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const width = Math.max(520, rect.width);
+  const height = 330;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = width * dpr; canvas.height = height * dpr;
+  canvas.style.width = `${width}px`; canvas.style.height = `${height}px`;
+  const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
+  const pad = { left: 48, right: 12, top: 12, bottom: 24 };
+  const priceBottom = 235; const volumeTop = 252; const volumeBottom = 310;
+  const maxPrice = Math.max(...rows.map((r) => Number(r.high)));
+  const minPrice = Math.min(...rows.map((r) => Number(r.low)));
+  const priceRange = maxPrice - minPrice || 1;
+  const maxVolume = Math.max(...rows.map((r) => Number(r.volume) || 0), 1);
+  const plotWidth = width - pad.left - pad.right; const step = plotWidth / rows.length;
+  const yPrice = (value) => pad.top + ((maxPrice - value) / priceRange) * (priceBottom - pad.top);
+  ctx.font = "11px ui-monospace, monospace"; ctx.strokeStyle = "rgba(154,164,178,.16)"; ctx.fillStyle = "#8290a2"; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i += 1) {
+    const y = pad.top + ((priceBottom - pad.top) * i / 4); const value = maxPrice - priceRange * i / 4;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(width - pad.right, y); ctx.stroke(); ctx.fillText(value.toFixed(2), 4, y + 4);
+  }
+  rows.forEach((row, index) => {
+    const x = pad.left + step * (index + .5); const open = Number(row.open); const close = Number(row.close);
+    const color = close >= open ? "#f06f7d" : "#45c69c"; const bodyWidth = Math.max(2, Math.min(8, step * .62));
+    ctx.strokeStyle = color; ctx.fillStyle = color;
+    ctx.beginPath(); ctx.moveTo(x, yPrice(Number(row.high))); ctx.lineTo(x, yPrice(Number(row.low))); ctx.stroke();
+    const top = yPrice(Math.max(open, close)); const bodyHeight = Math.max(1, Math.abs(yPrice(open) - yPrice(close)));
+    ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, bodyHeight);
+    const volumeHeight = (Number(row.volume) / maxVolume) * (volumeBottom - volumeTop);
+    ctx.globalAlpha = .55; ctx.fillRect(x - bodyWidth / 2, volumeBottom - volumeHeight, bodyWidth, volumeHeight); ctx.globalAlpha = 1;
+  });
+  [[5, "#f0c36a"], [10, "#72b7ff"], [20, "#c18cff"]].forEach(([period, color]) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.3; ctx.beginPath(); let started = false;
+    rows.forEach((_, index) => {
+      if (index + 1 < period) return;
+      const avg = rows.slice(index + 1 - period, index + 1).reduce((sum, row) => sum + Number(row.close), 0) / period;
+      const x = pad.left + step * (index + .5); const y = yPrice(avg); started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true;
+    });
+    ctx.stroke();
+  });
+  ctx.fillStyle = "#8290a2"; ctx.fillText(rows[0].trade_date.slice(5), pad.left, height - 5); ctx.fillText(rows[rows.length - 1].trade_date.slice(5), width - 48, height - 5);
+}
+
+function formatCompact(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  if (Math.abs(number) >= 100000000) return `${(number / 100000000).toFixed(2)}亿`;
+  if (Math.abs(number) >= 10000) return `${(number / 10000).toFixed(2)}万`;
+  return number.toFixed(0);
+}
+
+function formatPointPercent(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number.toFixed(2)}%` : "--";
+}
+
+function stockCodeNumber(code) {
+  const match = String(code || "").match(/(\d{6})$/);
+  return match ? match[1] : String(code || "");
+}
+
+stockSearch?.addEventListener("input", renderMarketStocks);
+stockList?.addEventListener("click", (event) => {
+  const option = event.target.closest("[data-stock-code]");
+  if (option) selectMarketStock(option.dataset.stockCode);
+});
+marketRefresh?.addEventListener("click", () => {
+  if (selectedMarketCode) selectMarketStock(selectedMarketCode, true);
+});
+window.addEventListener("resize", () => {
+  const canvas = stockDetail?.querySelector("[data-kline-canvas]");
+  if (canvas && lastMarketRows.length) drawKline(canvas, lastMarketRows);
+});
 
 let liveHits = [];
 
@@ -380,6 +604,7 @@ if (scanForm) {
       const payload = await response.json();
       if (!payload.ok) throw new Error(payload.error);
       appendLog(`任务 #${payload.task_id} 已接管当前扫描通道。`);
+      startDurationTimer(0);
       if (runButton) runButton.disabled = false;
       connectEvents();
     } catch (error) {
@@ -414,6 +639,7 @@ if (logBox) {
 }
 
 refreshStatus();
+loadMarketStocks(true);
 
 if (clearLogButton) clearLogButton.addEventListener("click", clearLog);
 
@@ -433,6 +659,10 @@ if (clearDbBtn) {
       if (j.ok) {
         clearPwd.value = "";
         await refreshStatus();
+        selectedMarketCode = "";
+        lastMarketRows = [];
+        if (stockDetail) stockDetail.innerHTML = '<div class="viewer-empty tall"><b>选择一只股票</b><span>查看最近 80 个交易日的日 K、成交量与明细数据</span></div>';
+        await loadMarketStocks(false);
       }
     } catch(e) {
       clearMsg.textContent = "请求失败";

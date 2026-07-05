@@ -27,3 +27,8 @@ def normalize_a_share_code(raw: str) -> str | None:
     else:
         market = "sz"
     return f"{market}.{number}"
+
+
+# Imported last because the cache provider reuses normalize_a_share_code.
+from stock_helper.data.daily_kline_cache import cache_scanner_daily_kline, get_daily_kline, read_cached_daily_kline  # noqa: E402,F401
+from stock_helper.data.daily_kline_sources import fetch_daily_kline  # noqa: E402,F401

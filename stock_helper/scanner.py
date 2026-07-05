@@ -1,6 +1,6 @@
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as datetime_time, timedelta
 import threading
 import time
 from zoneinfo import ZoneInfo
@@ -12,6 +12,7 @@ from stock_helper.data.multi_provider import make_multi_provider
 from stock_helper.data.realtime_provider import load_realtime_snapshot
 
 from stock_helper.indicators import enrich_history
+from stock_helper.market_calendar import expected_market_date, refresh_trade_calendar
 from stock_helper.strategy import evaluate_stock
 
 
@@ -81,6 +82,7 @@ class StockScanner:
         _log(log, f"流水线启动：{config.fetch_workers} 路拉取，{config.max_workers} 路分析（列表：{source}）")
         _log(log, f"实时硬门槛：仅分析本轮成功拉取且包含 {_market_today().isoformat()} 有效日线的股票")
         _log(log, "拉取规则：有本地数据则增量更新；无本地数据拉取完整回看区间；仅当日数据进入分析")
+        _log(log, "缓存规则：盘中及午间强制刷新；开盘前、休市日或已确认收盘后可复用目标交易日缓存")
         _log(log, f"K线策略：保留 {config.lookback_days} 日，增量补缺至当日")
         return self._run_pipeline(stocks, config, snapshots, log, progress, stop_event)
 
@@ -302,9 +304,11 @@ class StockScanner:
     def _fetch_one(stock, config, provider_pool, realtime_row, stop_event=None):
         if stop_event is not None and stop_event.is_set():
             raise ScanCancelled("扫描已取消")
-        cached, _ = db.get_cached_bars_state(stock.code, config.lookback_days)
+        cached, cached_updated_at = db.get_cached_bars_state(stock.code, config.lookback_days)
         bars_before = len(cached)
         source = "实时快照"
+        if realtime_row is None and _can_reuse_cached_market_data(cached, cached_updated_at):
+            return cached, bars_before, True, cached[-1], "最近收盘缓存"
         try:
             provider = None
             if realtime_row is None or bars_before < 35:
@@ -435,6 +439,7 @@ class StockScanner:
 
 
 def run_baostock_scan(config: StrategyConfig, log=None, progress=None, stop_event=None) -> list[dict]:
+    refresh_trade_calendar(log=log)
     return StockScanner().run(config, log=log, progress=progress, stop_event=stop_event)
 
 
@@ -476,6 +481,14 @@ def ensure_history_cached(
         if str(row.get("date", ""))[:10] != today or _is_valid_current_row(row, today)
     ]
     db.upsert_bars(code, rows_to_store)
+    try:
+        from stock_helper.data import cache_scanner_daily_kline
+
+        cache_scanner_daily_kline(code, rows_to_store)
+    except Exception:
+        # Viewer cache synchronization is best-effort and must never interrupt
+        # the strategy scan that produced these bars.
+        pass
     history = db.get_cached_bars(code, config.lookback_days)
     if not history or history[-1]["date"] != today:
         raise RealtimeDataUnavailable(f"{code} 当日行情持久化校验失败")
@@ -492,8 +505,50 @@ def _cache_is_fresh(updated_at: str | None, ttl_minutes: int) -> bool:
     return age.total_seconds() <= ttl_minutes * 60
 
 
-def _market_today() -> date:
-    return datetime.now(ZoneInfo("Asia/Shanghai")).date()
+def _market_today(now: datetime | None = None) -> date:
+    """Return the latest trade date that should be available at scan time.
+
+    The market date does not roll over at midnight. Before 09:30, the previous
+    trade date is still the latest usable session. Weekends and exchange
+    holidays are resolved through the cached market calendar.
+    """
+    return expected_market_date(now)
+
+
+def _can_reuse_cached_market_data(
+    cached: list[dict],
+    updated_at: str | None,
+    now: datetime | None = None,
+) -> bool:
+    """Reuse only finalized-session cache; never reuse during live/lunch trading."""
+    if not cached or not updated_at:
+        return False
+    shanghai = ZoneInfo("Asia/Shanghai")
+    current = now or datetime.now(shanghai)
+    current = current.replace(tzinfo=shanghai) if current.tzinfo is None else current.astimezone(shanghai)
+    target = expected_market_date(current)
+    latest = str(cached[-1].get("date", ""))[:10]
+    if latest != target.isoformat() or not _is_valid_current_row(cached[-1], latest):
+        return False
+
+    # A previous-date target is finalized: pre-open, weekend, or exchange holiday.
+    if target < current.date():
+        return True
+    current_time = current.time()
+    if datetime_time(9, 30) <= current_time <= datetime_time(15, 5):
+        return False
+    if current_time < datetime_time(9, 30):
+        return True
+    try:
+        updated = datetime.fromisoformat(updated_at)
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=shanghai)
+        else:
+            updated = updated.astimezone(shanghai)
+    except ValueError:
+        return False
+    close_confirmed_at = datetime.combine(current.date(), datetime_time(15, 5), tzinfo=shanghai)
+    return updated >= close_confirmed_at
 
 
 def _is_valid_current_row(row: dict, today: str) -> bool:
@@ -586,9 +641,17 @@ def _candidate(stock: StockInfo, latest: dict, score: int, reasons: list[str], r
         "ma20": latest["ma20"],
         "ma30": latest["ma30"],
         "distance_ma10_pct": latest["distance_ma10_pct"],
+        "distance_ma20_pct": latest.get("distance_ma20_pct"),
+        "volume_ratio": latest.get("volume_ratio_5"),
         "volume_ratio_5": latest["volume_ratio_5"],
+        "distance_to_ma10": latest.get("distance_ma10_pct"),
+        "distance_to_ma20": latest.get("distance_ma20_pct"),
+        "recent_big_yang": bool(latest.get("recent_big_yang")),
+        "recent_near_limit_up": bool(latest.get("recent_near_limit_up")),
+        "trend_status": latest.get("trend_status", ""),
         "turn": latest.get("turn", 0),
         "score": score,
         "reasons": reasons,
+        "reason": "，".join(reasons) + "。" if reasons else "",
         "risks": risks,
     }

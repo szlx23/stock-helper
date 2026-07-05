@@ -12,8 +12,8 @@ from fastapi.templating import Jinja2Templates
 
 from stock_helper import db
 from stock_helper.config import EXCLUDE_FIELDS, FILTER_FIELDS, SCORE_FIELDS, StrategyConfig
+from stock_helper.data import get_daily_kline, normalize_a_share_code
 from stock_helper.scan_tasks import ScanInProgressError, scan_manager
-from stock_helper.scanner import _market_today
 
 
 @asynccontextmanager
@@ -59,8 +59,7 @@ def healthz():
 def home(request: Request):
     config = StrategyConfig()
     task_status = scan_manager.status()
-    today = _market_today().isoformat()
-    summary = db.latest_summary(candidate_date=today)
+    summary = db.latest_summary()
     task_status["outcome"] = _effective_outcome(task_status, summary)
     return templates.TemplateResponse(
         request,
@@ -68,7 +67,7 @@ def home(request: Request):
         {
             "request": request,
             "summary": summary,
-            "candidates": db.latest_candidates(summary["scan"]["id"], trade_date=today) if summary["scan"] else [],
+            "candidates": db.latest_candidates(summary["scan"]["id"]) if summary["scan"] else [],
             "task_status": task_status,
             "config": config,
             "filter_fields": FILTER_FIELDS,
@@ -80,12 +79,11 @@ def home(request: Request):
 
 @app.get("/candidates", response_class=HTMLResponse)
 def candidates(request: Request):
-    today = _market_today().isoformat()
-    summary = db.latest_summary(candidate_date=today)
+    summary = db.latest_summary()
     return templates.TemplateResponse(
         request,
         "candidates.html",
-        {"request": request, "summary": summary, "candidates": db.latest_candidates(trade_date=today)},
+        {"request": request, "summary": summary, "candidates": db.latest_candidates()},
     )
 
 
@@ -169,8 +167,7 @@ async def clear_db(request: Request):
 @app.get("/scan-status")
 def scan_status():
     status = scan_manager.status()
-    today = _market_today().isoformat()
-    summary = db.latest_summary(candidate_date=today)
+    summary = db.latest_summary()
     outcome = _effective_outcome(status, summary)
     return JSONResponse(
         {
@@ -180,9 +177,50 @@ def scan_status():
             "done": status["done"],
             "outcome": outcome,
             "summary": _summary_payload(summary),
-            "candidates": db.latest_candidates(summary["scan"]["id"], trade_date=today) if summary["scan"] else [],
+            "candidates": db.latest_candidates(summary["scan"]["id"]) if summary["scan"] else [],
         }
     )
+
+
+@app.get("/api/market/stocks")
+def market_stocks():
+    return JSONResponse(db.market_data_stocks())
+
+
+@app.get("/api/market/daily-kline")
+def market_daily_kline(code: str, lookback_days: int = 80):
+    if lookback_days < 1 or lookback_days > 1000:
+        return JSONResponse({"error": "lookback_days 必须在 1 到 1000 之间"}, status_code=422)
+    normalized = normalize_a_share_code(code)
+    if normalized is None:
+        return JSONResponse({"error": "股票代码格式错误"}, status_code=422)
+    try:
+        rows = db.market_cached_daily_kline(normalized, lookback_days)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    stock = next((item for item in db.market_data_stocks() if item["code"] == normalized), None)
+    return JSONResponse({"code": normalized, "name": stock["name"] if stock else normalized, "rows": rows, "refreshed": False})
+
+
+@app.post("/api/market/daily-kline/refresh")
+async def refresh_market_daily_kline(request: Request):
+    try:
+        payload = await request.json()
+        code = payload.get("code", "")
+        lookback_days = int(payload.get("lookback_days", 80))
+    except (json.JSONDecodeError, AttributeError, TypeError, ValueError):
+        return JSONResponse({"error": "请求参数格式错误"}, status_code=422)
+    if lookback_days < 1 or lookback_days > 1000:
+        return JSONResponse({"error": "lookback_days 必须在 1 到 1000 之间"}, status_code=422)
+    normalized = normalize_a_share_code(str(code))
+    if normalized is None:
+        return JSONResponse({"error": "股票代码格式错误"}, status_code=422)
+    try:
+        rows = get_daily_kline(normalized, lookback_days)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    stock = next((item for item in db.market_data_stocks() if item["code"] == normalized), None)
+    return JSONResponse({"code": normalized, "name": stock["name"] if stock else normalized, "rows": rows, "refreshed": True})
 
 
 def _config_from_form(form) -> StrategyConfig:

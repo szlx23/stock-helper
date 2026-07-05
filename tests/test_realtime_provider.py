@@ -8,6 +8,7 @@ from stock_helper.data.realtime_provider import (
     _quote_is_current,
     load_realtime_snapshot,
 )
+from stock_helper.market_calendar import expected_market_date
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -30,6 +31,7 @@ def test_lunch_break_accepts_latest_same_day_quote():
 
 def test_bulk_snapshot_maps_realtime_ohlcv(monkeypatch):
     now = datetime.now(SHANGHAI)
+    quote_time = datetime.combine(expected_market_date(now), datetime.min.time(), tzinfo=SHANGHAI) + timedelta(hours=15)
 
     class Response:
         def raise_for_status(self):
@@ -51,7 +53,7 @@ def test_bulk_snapshot_maps_realtime_ohlcv(monkeypatch):
                         "f16": 9.9,
                         "f17": 10.0,
                         "f18": 9.95,
-                        "f124": int(now.timestamp()),
+                        "f124": int(quote_time.timestamp()),
                     }],
                 }
             }
@@ -60,14 +62,16 @@ def test_bulk_snapshot_maps_realtime_ohlcv(monkeypatch):
 
     snapshot = load_realtime_snapshot()
 
-    assert snapshot["sh.600000"]["date"] == now.date().isoformat()
+    assert snapshot["sh.600000"]["date"] == expected_market_date(now).isoformat()
     assert snapshot["sh.600000"]["close"] == 10.2
     assert snapshot["sh.600000"]["volume"] == 123456
     assert snapshot["sh.600000"]["quote_time"]
 
 
 def test_bulk_snapshot_rejects_previous_day_data(monkeypatch):
-    old = datetime.now(SHANGHAI) - timedelta(days=1)
+    now = datetime.now(SHANGHAI)
+    old_date = expected_market_date(now) - timedelta(days=1)
+    old = datetime.combine(old_date, datetime.min.time(), tzinfo=SHANGHAI)
 
     class Response:
         def raise_for_status(self):
@@ -84,6 +88,7 @@ def test_bulk_snapshot_rejects_previous_day_data(monkeypatch):
 
 def test_bulk_snapshot_fetches_remaining_pages_concurrently(monkeypatch):
     now = datetime.now(SHANGHAI)
+    quote_time = datetime.combine(expected_market_date(now), datetime.min.time(), tzinfo=SHANGHAI) + timedelta(hours=15)
     requested_pages = []
 
     class Response:
@@ -106,7 +111,7 @@ def test_bulk_snapshot_fetches_remaining_pages_concurrently(monkeypatch):
                     "f15": 10.5,
                     "f16": 9.9,
                     "f17": 10.0,
-                    "f124": int(now.timestamp()),
+                    "f124": int(quote_time.timestamp()),
                 })
             return {"data": {"total": 250, "diff": rows}}
 
