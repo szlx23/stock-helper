@@ -64,7 +64,8 @@ def test_bulk_snapshot_maps_realtime_ohlcv(monkeypatch):
 
     assert snapshot["sh.600000"]["date"] == expected_market_date(now).isoformat()
     assert snapshot["sh.600000"]["close"] == 10.2
-    assert snapshot["sh.600000"]["volume"] == 123456
+    assert snapshot["sh.600000"]["volume"] == 1000
+    assert snapshot["sh.600000"]["amount"] == 123456
     assert snapshot["sh.600000"]["quote_time"]
 
 
@@ -105,6 +106,7 @@ def test_bulk_snapshot_fetches_remaining_pages_concurrently(monkeypatch):
             for index in range(start, end):
                 rows.append({
                     "f2": 10.2,
+                    "f5": 1000,
                     "f6": 1000,
                     "f8": 1,
                     "f12": f"{600000 + index:06d}",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import threading
-from datetime import datetime
+from stock_helper.time_utils import shanghai_now
 
 from stock_helper import db
 from stock_helper.config import StrategyConfig
@@ -151,7 +151,7 @@ class ScanTaskManager:
                 self._live_hits.append(detail)
 
     def _append_locked(self, message: str) -> None:
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        timestamp = shanghai_now().strftime("%H:%M:%S")
         self._logs.append(f"[{timestamp}] {message}")
         if len(self._logs) > 1200:
             overflow = len(self._logs) - 1200

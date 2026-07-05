@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from typing import Protocol
-from zoneinfo import ZoneInfo
 
 from stock_helper import db
 from stock_helper.data import normalize_a_share_code
+from stock_helper.time_utils import shanghai_today
 
 
 DEFAULT_OVERLAP_DAYS = 3
@@ -94,7 +94,7 @@ class DailyKlineCache:
             raise ValueError(f"无效的 A 股代码：{code}")
 
         db.init_db()
-        end_date = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+        end_date = shanghai_today()
         overlap_dates = _latest_cached_dates(normalized_code, self.overlap_days)
         if overlap_dates:
             # Use actual cached sessions rather than subtracting calendar days;
@@ -183,7 +183,7 @@ def _upsert_daily_kline(code: str, rows: list[dict]) -> None:
             """
             INSERT INTO daily_kline (
                 code, trade_date, open, high, low, close, volume, amount, pct_chg, turnover, source, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+8 hours'))
             ON CONFLICT(code, trade_date) DO UPDATE SET
                 open = excluded.open,
                 high = excluded.high,
@@ -194,7 +194,7 @@ def _upsert_daily_kline(code: str, rows: list[dict]) -> None:
                 pct_chg = excluded.pct_chg,
                 turnover = excluded.turnover,
                 source = excluded.source,
-                updated_at = datetime('now', 'localtime')
+                updated_at = datetime('now', '+8 hours')
             """,
             [
                 (

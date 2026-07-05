@@ -80,7 +80,7 @@ def init_db(db_path: Path | None = None) -> None:
                 close REAL NOT NULL,
                 volume REAL NOT NULL,
                 turn REAL NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
                 PRIMARY KEY (code, trade_date)
             );
 
@@ -90,12 +90,12 @@ def init_db(db_path: Path | None = None) -> None:
             CREATE TABLE IF NOT EXISTS stock_info_cache (
                 code TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours'))
             );
 
             CREATE TABLE IF NOT EXISTS trade_calendar (
                 trade_date TEXT PRIMARY KEY,
-                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours'))
             );
 
             CREATE TABLE IF NOT EXISTS daily_kline (
@@ -110,7 +110,7 @@ def init_db(db_path: Path | None = None) -> None:
                 pct_chg REAL NOT NULL,
                 turnover REAL NOT NULL DEFAULT 0,
                 source TEXT NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
                 PRIMARY KEY (code, trade_date)
             );
 
@@ -144,7 +144,7 @@ def create_scan(config: StrategyConfig, status: str = "running", error_message: 
         cursor = conn.execute(
             """
             INSERT INTO scan_tasks (scanned_at, params_json, hit_count, status, error_message)
-            VALUES (datetime('now', 'localtime'), ?, 0, ?, ?)
+            VALUES (datetime('now', '+8 hours'), ?, 0, ?, ?)
             """,
             (json.dumps(config.to_dict(), ensure_ascii=False), status, error_message),
         )
@@ -157,8 +157,8 @@ def finish_scan(scan_id: int, hit_count: int, status: str = "success", error_mes
             """
             UPDATE scan_tasks
             SET hit_count = ?, status = ?, error_message = ?,
-                finished_at = datetime('now', 'localtime'),
-                duration_seconds = ROUND((julianday(datetime('now', 'localtime')) - julianday(scanned_at)) * 86400, 3)
+                finished_at = datetime('now', '+8 hours'),
+                duration_seconds = ROUND((julianday(datetime('now', '+8 hours')) - julianday(scanned_at)) * 86400, 3)
             WHERE id = ?
             """,
             (hit_count, status, error_message, scan_id),
@@ -170,8 +170,8 @@ def fail_running_scans(message: str = "服务重启，原扫描任务已中断")
         cursor = conn.execute(
             """
             UPDATE scan_tasks
-            SET status = 'failed', error_message = ?, finished_at = datetime('now', 'localtime'),
-                duration_seconds = ROUND((julianday(datetime('now', 'localtime')) - julianday(scanned_at)) * 86400, 3)
+            SET status = 'failed', error_message = ?, finished_at = datetime('now', '+8 hours'),
+                duration_seconds = ROUND((julianday(datetime('now', '+8 hours')) - julianday(scanned_at)) * 86400, 3)
             WHERE status = 'running'
             """,
             (message,),
@@ -203,8 +203,8 @@ def complete_scan(scan_id: int, candidates: list[dict]) -> None:
             """
             UPDATE scan_tasks
             SET hit_count = ?, status = 'success', error_message = NULL,
-                finished_at = datetime('now', 'localtime'),
-                duration_seconds = ROUND((julianday(datetime('now', 'localtime')) - julianday(scanned_at)) * 86400, 3)
+                finished_at = datetime('now', '+8 hours'),
+                duration_seconds = ROUND((julianday(datetime('now', '+8 hours')) - julianday(scanned_at)) * 86400, 3)
             WHERE id = ?
             """,
             (len(candidates), scan_id),
@@ -264,7 +264,7 @@ def latest_scan() -> sqlite3.Row | None:
             """
             SELECT *,
                 CASE WHEN status = 'running'
-                     THEN ROUND((julianday(datetime('now', 'localtime')) - julianday(scanned_at)) * 86400, 3)
+                     THEN ROUND((julianday(datetime('now', '+8 hours')) - julianday(scanned_at)) * 86400, 3)
                      ELSE duration_seconds END AS elapsed_seconds
             FROM scan_tasks ORDER BY id DESC LIMIT 1
             """
@@ -356,7 +356,7 @@ def upsert_bars(code: str, rows: list[dict]) -> int:
         conn.executemany(
             """
             INSERT INTO stock_daily_bars (code, trade_date, open, high, low, close, volume, turn, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+8 hours'))
             ON CONFLICT(code, trade_date) DO UPDATE SET
                 open = excluded.open,
                 high = excluded.high,
@@ -364,7 +364,7 @@ def upsert_bars(code: str, rows: list[dict]) -> int:
                 close = excluded.close,
                 volume = excluded.volume,
                 turn = excluded.turn,
-                updated_at = datetime('now', 'localtime')
+                updated_at = datetime('now', '+8 hours')
             """,
             [
                 (
@@ -391,10 +391,10 @@ def upsert_stock_list(stocks) -> int:
         conn.executemany(
             """
             INSERT INTO stock_info_cache (code, name, updated_at)
-            VALUES (?, ?, datetime('now', 'localtime'))
+            VALUES (?, ?, datetime('now', '+8 hours'))
             ON CONFLICT(code) DO UPDATE SET
                 name = excluded.name,
-                updated_at = datetime('now', 'localtime')
+                updated_at = datetime('now', '+8 hours')
             """,
             [(stock.code, stock.name) for stock in stocks],
         )
@@ -429,7 +429,7 @@ def replace_trade_calendar(trade_dates: list[str]) -> None:
     with connect() as conn:
         conn.execute("DELETE FROM trade_calendar")
         conn.executemany(
-            "INSERT INTO trade_calendar (trade_date, updated_at) VALUES (?, datetime('now', 'localtime'))",
+            "INSERT INTO trade_calendar (trade_date, updated_at) VALUES (?, datetime('now', '+8 hours'))",
             [(value,) for value in sorted(set(trade_dates))],
         )
 
@@ -504,6 +504,41 @@ def market_cached_daily_kline(code: str, limit: int) -> list[dict]:
             row["pct_chg"] = ((row["close"] / previous_close) - 1) * 100 if previous_close else 0.0
         previous_close = row["close"]
     return result
+
+
+def remove_suspect_latest_volume_rows(max_multiple: float = 20.0) -> int:
+    """Remove latest bars likely written with amount in the volume column."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            WITH ranked AS (
+                SELECT code, trade_date, volume,
+                       ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) AS rn
+                FROM stock_daily_bars
+            ), baselines AS (
+                SELECT code,
+                       MAX(CASE WHEN rn = 1 THEN trade_date END) AS latest_date,
+                       MAX(CASE WHEN rn = 1 THEN volume END) AS latest_volume,
+                       AVG(CASE WHEN rn BETWEEN 2 AND 6 THEN volume END) AS previous_avg,
+                       SUM(CASE WHEN rn BETWEEN 2 AND 6 THEN 1 ELSE 0 END) AS baseline_rows
+                FROM ranked WHERE rn <= 6 GROUP BY code
+            )
+            SELECT code, latest_date
+            FROM baselines
+            WHERE baseline_rows = 5 AND previous_avg > 0
+              AND latest_volume > previous_avg * ?
+            """,
+            (max_multiple,),
+        ).fetchall()
+        if not rows:
+            return 0
+        keys = [(row["code"], row["latest_date"]) for row in rows]
+        conn.executemany("DELETE FROM stock_daily_bars WHERE code = ? AND trade_date = ?", keys)
+        conn.executemany(
+            "DELETE FROM daily_kline WHERE code = ? AND trade_date = ? AND source = 'scan_cache'",
+            keys,
+        )
+    return len(rows)
 
 
 def _decode_candidate(row: sqlite3.Row) -> dict:

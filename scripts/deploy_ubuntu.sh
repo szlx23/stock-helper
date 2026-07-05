@@ -51,6 +51,7 @@ User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${APP_DIR}
 Environment=STOCK_HELPER_DB=${DB_PATH}
+Environment=TZ=Asia/Shanghai
 ExecStart=${APP_DIR}/.venv/bin/uvicorn stock_helper.app:app --host ${HOST} --port ${PORT}
 Restart=always
 RestartSec=5

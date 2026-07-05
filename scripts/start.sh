@@ -15,6 +15,7 @@ echo "  工作目录 : $(pwd)"
 echo "=========================================="
 
 export STOCK_HELPER_DB="${DB}"
+export TZ="Asia/Shanghai"
 
 echo "[1/2] 初始化数据库..."
 .venv/bin/python -c "

@@ -14,6 +14,7 @@ from stock_helper.data.realtime_provider import load_realtime_snapshot
 from stock_helper.indicators import enrich_history
 from stock_helper.market_calendar import expected_market_date, refresh_trade_calendar
 from stock_helper.strategy import evaluate_stock
+from stock_helper.time_utils import SHANGHAI, shanghai_now
 
 
 class ScanCancelled(Exception):
@@ -63,6 +64,9 @@ class StockScanner:
 
     def run(self, config: StrategyConfig, log=None, progress=None, stop_event=None) -> list[dict]:
         config.validate()
+        removed = db.remove_suspect_latest_volume_rows()
+        if removed:
+            _log(log, f"数据修复：清除 {removed} 只股票疑似成交额误写为成交量的最新K线")
         stocks, source = self._load_stock_universe(config, log)
         stocks = [stock for stock in stocks if not _excluded_by_code_or_name(stock, config)]
         _log(log, f"读取并预过滤股票：{len(stocks)} 只")
@@ -305,6 +309,8 @@ class StockScanner:
         if stop_event is not None and stop_event.is_set():
             raise ScanCancelled("扫描已取消")
         cached, cached_updated_at = db.get_cached_bars_state(stock.code, config.lookback_days)
+        if realtime_row is not None and not _volume_unit_is_compatible(realtime_row, cached):
+            realtime_row = None
         bars_before = len(cached)
         source = "实时快照"
         if realtime_row is None and _can_reuse_cached_market_data(cached, cached_updated_at):
@@ -499,7 +505,7 @@ def _cache_is_fresh(updated_at: str | None, ttl_minutes: int) -> bool:
     if not updated_at or ttl_minutes <= 0:
         return False
     try:
-        age = datetime.now() - datetime.fromisoformat(updated_at)
+        age = shanghai_now().replace(tzinfo=None) - datetime.fromisoformat(updated_at)
     except ValueError:
         return False
     return age.total_seconds() <= ttl_minutes * 60
@@ -523,9 +529,8 @@ def _can_reuse_cached_market_data(
     """Reuse only finalized-session cache; never reuse during live/lunch trading."""
     if not cached or not updated_at:
         return False
-    shanghai = ZoneInfo("Asia/Shanghai")
-    current = now or datetime.now(shanghai)
-    current = current.replace(tzinfo=shanghai) if current.tzinfo is None else current.astimezone(shanghai)
+    current = now or shanghai_now()
+    current = current.replace(tzinfo=SHANGHAI) if current.tzinfo is None else current.astimezone(SHANGHAI)
     target = expected_market_date(current)
     latest = str(cached[-1].get("date", ""))[:10]
     if latest != target.isoformat() or not _is_valid_current_row(cached[-1], latest):
@@ -542,12 +547,12 @@ def _can_reuse_cached_market_data(
     try:
         updated = datetime.fromisoformat(updated_at)
         if updated.tzinfo is None:
-            updated = updated.replace(tzinfo=shanghai)
+            updated = updated.replace(tzinfo=SHANGHAI)
         else:
-            updated = updated.astimezone(shanghai)
+            updated = updated.astimezone(SHANGHAI)
     except ValueError:
         return False
-    close_confirmed_at = datetime.combine(current.date(), datetime_time(15, 5), tzinfo=shanghai)
+    close_confirmed_at = datetime.combine(current.date(), datetime_time(15, 5), tzinfo=SHANGHAI)
     return updated >= close_confirmed_at
 
 
@@ -561,6 +566,24 @@ def _is_valid_current_row(row: dict, today: str) -> bool:
         except (TypeError, ValueError):
             return False
     return True
+
+
+def _volume_unit_is_compatible(row: dict, cached: list[dict], max_multiple: float = 20.0) -> bool:
+    """Reject likely amount/volume unit mismatches before they enter cache."""
+    current_volume = _f_number(row.get("volume"))
+    previous = [_f_number(item.get("volume")) for item in cached[-5:] if _f_number(item.get("volume")) > 0]
+    if current_volume <= 0 or len(previous) < 5:
+        return current_volume > 0
+    baseline = sum(previous) / len(previous)
+    ratio = current_volume / baseline
+    return (1 / max_multiple) <= ratio <= max_multiple
+
+
+def _f_number(value) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _date_from_iso(value: str) -> date:

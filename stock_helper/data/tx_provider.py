@@ -1,8 +1,9 @@
 """Tencent data provider via AKShare."""
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 from stock_helper.data import StockInfo, normalize_a_share_code
+from stock_helper.time_utils import shanghai_today
 
 
 class TXProvider:
@@ -36,7 +37,7 @@ class TXProvider:
         return stocks
 
     def get_history(self, code: str, lookback_days: int) -> list[dict]:
-        end = date.today()
+        end = shanghai_today()
         start = end - timedelta(days=max(lookback_days * 2, 260))
         return self.get_history_range(code, start.isoformat(), end.isoformat())[-lookback_days:]
 

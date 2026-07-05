@@ -14,7 +14,7 @@ from stock_helper.config import StrategyConfig
 from stock_helper.data import StockInfo, normalize_a_share_code
 from stock_helper.data.multi_provider import MultiProvider
 from stock_helper.scan_tasks import ScanInProgressError, ScanTaskManager
-from stock_helper.scanner import RealtimeDataUnavailable, StockScanner, _can_reuse_cached_market_data, _limit_stocks, _market_today, ensure_history_cached
+from stock_helper.scanner import RealtimeDataUnavailable, StockScanner, _can_reuse_cached_market_data, _limit_stocks, _market_today, _volume_unit_is_compatible, ensure_history_cached
 from tests.test_strategy import make_rows
 
 
@@ -45,6 +45,12 @@ def test_finalized_cache_reuse_never_applies_during_live_market(monkeypatch):
     assert not _can_reuse_cached_market_data([monday_bar], "2026-07-06 10:00:00", datetime(2026, 7, 6, 11, 0))
     assert not _can_reuse_cached_market_data([monday_bar], "2026-07-06 11:30:00", datetime(2026, 7, 6, 12, 0))
     assert _can_reuse_cached_market_data([monday_bar], "2026-07-06 15:06:00", datetime(2026, 7, 6, 16, 0))
+
+
+def test_realtime_volume_unit_mismatch_is_rejected():
+    cached = [{"volume": value} for value in (100, 110, 90, 105, 95)]
+    assert _volume_unit_is_compatible({"volume": 120}, cached)
+    assert not _volume_unit_is_compatible({"volume": 100000}, cached)
 
 
 class FakeProvider:
@@ -142,6 +148,36 @@ def test_database_saves_scan_params_and_candidates(tmp_path, monkeypatch):
     assert summary["scan"]["finished_at"] is not None
     assert summary["scan"]["duration_seconds"] is not None
     assert summary["scan"]["elapsed_seconds"] == summary["scan"]["duration_seconds"]
+
+
+def test_database_timestamps_are_shanghai_time_even_on_utc_server(tmp_path, monkeypatch):
+    from stock_helper.time_utils import shanghai_now
+
+    monkeypatch.setenv("STOCK_HELPER_DB", str(tmp_path / "timezone.db"))
+    db.init_db()
+    scan_id = db.create_scan(StrategyConfig())
+    scanned_at = datetime.fromisoformat(db.latest_scan()["scanned_at"])
+    expected = shanghai_now().replace(tzinfo=None)
+
+    assert scan_id > 0
+    assert abs((expected - scanned_at).total_seconds()) < 3
+
+
+def test_suspect_amount_as_volume_latest_row_is_removed(tmp_path, monkeypatch):
+    monkeypatch.setenv("STOCK_HELPER_DB", str(tmp_path / "volume-repair.db"))
+    db.init_db()
+    rows = []
+    for index in range(6):
+        rows.append({
+            "date": f"2026-07-0{index + 1}", "open": 10, "high": 11, "low": 9, "close": 10,
+            "volume": 100000 if index == 5 else 100, "turn": 1,
+        })
+    db.upsert_bars("sh.600000", rows)
+
+    removed = db.remove_suspect_latest_volume_rows()
+
+    assert removed == 1
+    assert db.latest_cached_bar_date("sh.600000") == "2026-07-05"
 
 
 def test_home_renders_scan_form(tmp_path, monkeypatch):

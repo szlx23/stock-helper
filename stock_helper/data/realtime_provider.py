@@ -74,12 +74,14 @@ def load_realtime_snapshot(log=None) -> dict[str, dict]:
             "high": _number(item.get("f15")),
             "low": _number(item.get("f16")),
             "close": _number(item.get("f2")),
-            # Tencent history uses amount as its volume-like series; keep units consistent.
-            "volume": _number(item.get("f6")),
+            # Eastmoney f5 is volume; f6 is monetary amount and must never be
+            # mixed with historical volume when calculating volume ratios.
+            "volume": _number(item.get("f5")),
+            "amount": _number(item.get("f6")),
             "turn": _number(item.get("f8")),
             "quote_time": quote_time.isoformat() if quote_time else "",
         }
-        if any(bar[field] <= 0 for field in ("open", "high", "low", "close")):
+        if any(bar[field] <= 0 for field in ("open", "high", "low", "close", "volume")):
             invalid += 1
             continue
         snapshot[code] = bar
