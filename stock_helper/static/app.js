@@ -345,7 +345,7 @@ function renderMarketStocks() {
   `).join("");
 }
 
-async function selectMarketStock(code, forceRefresh = false) {
+async function selectMarketStock(code, forceRefresh = false, revealOnMobile = false) {
   selectedMarketCode = String(code || "");
   renderMarketStocks();
   if (marketRefresh) marketRefresh.disabled = true;
@@ -363,6 +363,9 @@ async function selectMarketStock(code, forceRefresh = false) {
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     if (selectedMarketCode !== code) return;
     renderMarketDetail(payload);
+    if (revealOnMobile && window.matchMedia("(max-width: 768px)").matches) {
+      stockDetail?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     const rowCount = (payload.rows || []).length;
     if (marketStatus) marketStatus.textContent = payload.refreshed ? `增量数据已更新 · ${rowCount} 日` : (rowCount ? `当前仅有 ${rowCount} 个交易日数据` : "暂无本地K线数据");
     await loadMarketStocks(false);
@@ -409,14 +412,17 @@ function renderMarketDetail(payload) {
 function drawKline(canvas, rows) {
   if (!canvas || !rows.length) return;
   const rect = canvas.parentElement.getBoundingClientRect();
-  const width = Math.max(520, rect.width);
-  const height = 330;
-  const dpr = window.devicePixelRatio || 1;
+  const mobile = window.matchMedia("(max-width: 768px)").matches;
+  const width = Math.max(300, Math.floor(rect.width));
+  const height = mobile ? 276 : 330;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
   canvas.width = width * dpr; canvas.height = height * dpr;
   canvas.style.width = `${width}px`; canvas.style.height = `${height}px`;
   const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
-  const pad = { left: 48, right: 12, top: 12, bottom: 24 };
-  const priceBottom = 235; const volumeTop = 252; const volumeBottom = 310;
+  const pad = { left: mobile ? 40 : 48, right: 10, top: 12, bottom: 24 };
+  const priceBottom = mobile ? 190 : 235;
+  const volumeTop = mobile ? 204 : 252;
+  const volumeBottom = height - 20;
   const maxPrice = Math.max(...rows.map((r) => Number(r.high)));
   const minPrice = Math.min(...rows.map((r) => Number(r.low)));
   const priceRange = maxPrice - minPrice || 1;
@@ -471,7 +477,7 @@ function stockCodeNumber(code) {
 stockSearch?.addEventListener("input", renderMarketStocks);
 stockList?.addEventListener("click", (event) => {
   const option = event.target.closest("[data-stock-code]");
-  if (option) selectMarketStock(option.dataset.stockCode);
+  if (option) selectMarketStock(option.dataset.stockCode, false, true);
 });
 marketRefresh?.addEventListener("click", () => {
   if (selectedMarketCode) selectMarketStock(selectedMarketCode, true);
