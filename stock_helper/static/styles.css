@@ -85,6 +85,9 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
 /* === 面板 === */
 .panel{margin-top:14px;padding:16px;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel);box-shadow:var(--shadow)}
 .panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
+.panel-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.panel-toggle{display:inline-flex;min-height:32px;align-items:center;gap:5px;border:1px solid var(--border);border-radius:7px;padding:5px 8px;background:rgba(13,17,23,.45);color:var(--muted);cursor:pointer;font-size:12px;font-weight:700}.panel-toggle i{width:13px;color:var(--accent);font-style:normal;text-align:center}.panel-toggle:hover,.panel-toggle:focus-visible{border-color:var(--accent);color:var(--text);outline:none}
+.panel.is-collapsed{min-height:0}.panel.is-collapsed>.panel-head{margin-bottom:0}.panel.is-collapsed>:not(.panel-head){display:none!important}
 .progress-track{height:10px;border-radius:999px;background:#0a1018;overflow:hidden}
 .progress-fill{height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--accent),#8bb8ff);transition:width .24s}
 .current-stock{margin-top:12px;color:var(--muted);font-size:15px}
@@ -205,8 +208,22 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
   .config-sidebar .sidebar-toggle{display:none}
   .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999}
   .sidebar-overlay.is-open{display:block}
-  .work-main{width:100%;max-width:100vw;padding:12px 8px;overflow:hidden}
-  .summary-grid{grid-template-columns:1fr 1fr}
+  .work-main{display:flex;width:100%;max-width:100vw;flex-direction:column;padding:10px 8px;overflow:hidden}
+  .main-hero{order:1;min-height:0;margin-bottom:8px;padding:11px 12px;align-items:center;flex-direction:row}
+  .main-hero .eyebrow{display:none}.main-hero h2{font-size:18px;line-height:1.25}.main-hero>div:last-child{flex-shrink:0}.main-hero>div:last-child>span{display:none}.main-hero .status-pill{padding:6px 9px;font-size:12px}
+  .run-row{order:2;margin-bottom:0}
+  .progress-panel{order:3}
+  .results-panel{order:4}
+  .market-viewer{order:5}
+  .summary-grid{order:6;grid-template-columns:1fr 1fr;gap:7px;margin:10px 0 0}
+  .alert{order:7;margin:10px 0 0}
+  .log-panel{order:8}
+  .clear-row{order:9}
+  .stat-card{min-height:67px;padding:10px 11px;box-shadow:none}.stat-card .label{margin-bottom:5px;font-size:11px}.stat-card strong{font-size:15px}.stat-card small{display:none}
+  .panel{margin-top:10px;padding:12px;box-shadow:none}
+  .panel-head{margin-bottom:9px}.panel-head h3{font-size:18px}.panel-head .eyebrow{margin-bottom:4px;font-size:11px}
+  .panel-head-actions>.muted{display:none}
+  .panel-toggle{min-width:58px;min-height:34px;justify-content:center}
   .metrics{grid-template-columns:repeat(3,1fr)}
   .main-hero{flex-direction:column}
   .config-sidebar.is-collapsed{width:auto}
@@ -216,10 +233,10 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
   .log-kind{display:none}
   .log-actions{gap:6px}
   .data-snapshot-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .market-viewer{border-radius:9px}
+  .market-viewer{border-radius:9px;padding:0}
   .market-viewer-head{align-items:flex-start;flex-direction:column;padding:14px 12px}
   .market-viewer-head h3{font-size:19px}
-  .viewer-actions{display:grid;width:100%;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px}
+  .viewer-actions{display:grid;width:100%;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:6px}
   .viewer-actions .muted{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
   .viewer-actions .log-clear{min-height:36px;padding:7px 10px;white-space:nowrap}
   .market-viewer-grid{grid-template-columns:1fr;min-height:0}
@@ -247,9 +264,8 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
 }
 
 @media(max-width:420px){
-  .summary-grid{grid-template-columns:1fr}
-  .viewer-actions{grid-template-columns:1fr}
-  .viewer-actions .log-clear{width:100%}
+  .summary-grid{grid-template-columns:1fr 1fr}
+  .viewer-actions{grid-template-columns:minmax(0,1fr) auto}.viewer-actions .panel-toggle{grid-column:2}.viewer-actions .log-clear{grid-column:1/-1;width:100%}
   .stock-list{max-height:230px}
   .kline-legend small{display:none}
 }

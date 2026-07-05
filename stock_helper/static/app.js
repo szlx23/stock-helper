@@ -26,6 +26,7 @@ const stockSearch = document.querySelector("[data-stock-search]");
 const stockDetail = document.querySelector("[data-stock-detail]");
 const marketStatus = document.querySelector("[data-market-status]");
 const marketRefresh = document.querySelector("[data-market-refresh]");
+const collapsiblePanels = document.querySelectorAll("[data-collapsible-panel]");
 let eventSource = null;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
@@ -39,6 +40,32 @@ let lastMarketRows = [];
 let durationTimer = null;
 let durationBaseSeconds = Number(scanDuration?.dataset.seconds || 0);
 let durationTickStartedAt = 0;
+
+function setPanelCollapsed(panel, collapsed, persist = true) {
+  const button = panel.querySelector("[data-panel-toggle]");
+  panel.classList.toggle("is-collapsed", collapsed);
+  if (button) {
+    button.setAttribute("aria-expanded", String(!collapsed));
+    button.querySelector("span").textContent = collapsed ? "展开" : "收起";
+    button.querySelector("i").textContent = collapsed ? "⌄" : "⌃";
+  }
+  if (persist) localStorage.setItem(`stock-helper-panel-${panel.dataset.collapsiblePanel}`, collapsed ? "collapsed" : "open");
+  if (!collapsed && panel.matches("[data-market-viewer]")) {
+    window.requestAnimationFrame(() => {
+      const canvas = panel.querySelector("[data-kline-canvas]");
+      if (canvas && lastMarketRows.length) drawKline(canvas, lastMarketRows);
+    });
+  }
+}
+
+collapsiblePanels.forEach((panel) => {
+  const saved = localStorage.getItem(`stock-helper-panel-${panel.dataset.collapsiblePanel}`);
+  const mobileDefault = window.matchMedia("(max-width: 768px)").matches && panel.dataset.mobileCollapsed === "true";
+  setPanelCollapsed(panel, saved ? saved === "collapsed" : mobileDefault, false);
+  panel.querySelector("[data-panel-toggle]")?.addEventListener("click", () => {
+    setPanelCollapsed(panel, !panel.classList.contains("is-collapsed"));
+  });
+});
 
 if (priceInput && priceOutput) {
   const syncPrice = () => {

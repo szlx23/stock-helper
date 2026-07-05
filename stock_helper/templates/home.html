@@ -124,7 +124,7 @@
       </button>
     </div>
 
-    <section class="panel progress-panel">
+    <section class="panel progress-panel" data-collapsible-panel="progress">
       <div class="panel-head">
         <div>
           <p class="eyebrow">扫描进度</p>
@@ -133,7 +133,10 @@
             {{ progress.completed if progress else 0 }}/{{ progress.total if progress else 0 }}
           </h3>
         </div>
-        <span class="status-pill soft" data-hit-count>命中 {{ task_status.progress.hits if task_status.progress else 0 }}</span>
+        <div class="panel-head-actions">
+          <span class="status-pill soft" data-hit-count>命中 {{ task_status.progress.hits if task_status.progress else 0 }}</span>
+          <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="折叠扫描进度"><span>收起</span><i>⌃</i></button>
+        </div>
       </div>
       <div class="progress-track">
         {% set completed = task_status.progress.completed if task_status.progress else 0 %}
@@ -149,7 +152,7 @@
       </p>
     </section>
 
-    <section class="panel market-viewer" data-market-viewer>
+    <section class="panel market-viewer" data-market-viewer data-collapsible-panel="market" data-mobile-collapsed="true">
       <div class="panel-head market-viewer-head">
         <div>
           <p class="eyebrow">已拉取数据</p>
@@ -158,6 +161,7 @@
         <div class="viewer-actions">
           <span class="muted" data-market-status aria-live="polite">正在读取本地缓存…</span>
           <button class="log-clear" type="button" data-market-refresh disabled>刷新当前股票</button>
+          <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="折叠股票数据查看"><span>收起</span><i>⌃</i></button>
         </div>
       </div>
       <div class="market-viewer-grid">
@@ -185,7 +189,7 @@
     <div class="alert">最近一次筛选失败：{{ summary.scan.error_message }}</div>
     {% endif %}
 
-    <section class="panel log-panel" aria-live="polite">
+    <section class="panel log-panel" aria-live="polite" data-collapsible-panel="logs" data-mobile-collapsed="true">
       <div class="panel-head">
         <div>
           <p class="eyebrow">实时输出</p>
@@ -194,6 +198,7 @@
         <div class="log-actions">
           <span class="stream-state" data-stream-state><i></i>等待连接</span>
           <button class="log-clear" type="button" data-clear-log>清屏</button>
+          <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="折叠扫描日志"><span>收起</span><i>⌃</i></button>
         </div>
       </div>
       <div class="log-box" data-log-box role="log" aria-live="polite" aria-relevant="additions">
@@ -207,13 +212,16 @@
       </div>
     </section>
 
-    <section class="panel results-panel">
+    <section class="panel results-panel" data-collapsible-panel="results">
       <div class="panel-head">
         <div>
           <p class="eyebrow">候选结果</p>
           <h3>评分排序</h3>
         </div>
-        <span class="muted">最新扫描结果自动显示</span>
+        <div class="panel-head-actions">
+          <span class="muted">最新扫描结果自动显示</span>
+          <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="折叠候选结果"><span>收起</span><i>⌃</i></button>
+        </div>
       </div>
       <div class="candidate-list" data-results-list>
         {% if not candidates %}
@@ -242,7 +250,6 @@
           </div>
         </article>
         {% endfor %}
-      </div>
     </section>
   
     <div class="clear-row">
